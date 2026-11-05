@@ -93,6 +93,8 @@ jobs:
 
             **Update the Steam Workshop item**
             1. Download `AutoBattler - Movement Autopilot v${{ steps.ver.outputs.version }}.zip`.
+               GitHub may replace spaces with dots in the asset filename; rename it back
+               (the uploader uses the zip filename as the Workshop item title).
             2. On a machine with Steam running/logged in (Windows recommended for this project),
                open `GodotWorkshopUtility.exe` from the Brotato install folder.
             3. Select the zip, set Workshop ID `3834096920`, click Upload, then paste

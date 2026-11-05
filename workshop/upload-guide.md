@@ -46,3 +46,9 @@ Upload workshop item ... failed (Failed to initialize build on server (No Connec
 4. 在网页编辑物品，粘贴 `workshop/description.txt`。
 
 不要在 Mac 上反复启动/重启上传工具；也不要在弹出的登录页登录。
+
+## 从 GitHub Release 下载时
+
+GitHub 会把附件名里的空格替换成点（如 `AutoBattler.-.Movement.Autopilot.v2.2.2.zip`）。
+上传工具会用 zip 文件名当 Workshop 标题，所以**下载后请重命名回**
+`AutoBattler - Movement Autopilot v2.2.2.zip` 再选择。
