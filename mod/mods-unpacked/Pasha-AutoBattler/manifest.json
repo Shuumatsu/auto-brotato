@@ -1,0 +1,24 @@
+{
+	"name": "AutoBattler",
+	"namespace": "Pasha",
+	"version_number": "2.2.2",
+	"description": "Movement-only autopilot for Brotato (MIT fork of BOTato, tested on 1.2.0.1). Auto-moves/dodges during waves; every decision stays manual. Behaviour priors are inferred from measured build traits incl. economy/food/tree mechanics (no per-character table needed). Toggle with Shift+Space.",
+	"website_url": "https://github.com/boardengineer/botato",
+	"dependencies": [],
+	"optional_dependencies": [],
+	"extra": {
+		"godot": {
+			"incompatibilities": [],
+			"authors": [
+				"Pasha (original BOTato)",
+				"local slim fork"
+			],
+			"compatible_mod_loader_version": [
+				"6.3.0"
+			],
+			"compatible_game_version": [
+				"1.2.0.1"
+			]
+		}
+	}
+}

@@ -1,0 +1,8 @@
+{
+  "scenarios": [
+    {"character": "character_ranger",  "difficulty": 6},
+    {"character": "character_soldier", "difficulty": 6},
+    {"character": "character_knight",  "difficulty": 6}
+  ],
+  "note": "Danger 6 wave 1: much stronger pressure, better signal for damage/kiting weights"
+}

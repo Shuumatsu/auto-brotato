@@ -1,0 +1,7 @@
+{
+  "candidates": [
+    {"name": "baseline",       "overrides": {}},
+    {"name": "more_room_wall", "overrides": {"room": 9.0, "wall": 20.0}},
+    {"name": "safer_bullets",  "overrides": {"proj": 1.25, "contact": 0.8}}
+  ]
+}

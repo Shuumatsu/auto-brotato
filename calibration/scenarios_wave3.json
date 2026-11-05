@@ -1,0 +1,8 @@
+{
+  "scenarios": [
+    {"character": "character_ranger",  "difficulty": 6, "start_wave": 3},
+    {"character": "character_soldier", "difficulty": 6, "start_wave": 3},
+    {"character": "character_knight",  "difficulty": 6, "start_wave": 3}
+  ],
+  "note": "Danger 6 from wave 3: harder than wave 1, but not one-shot like wave 6; 30s wave gives damage signal"
+}

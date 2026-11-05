@@ -1,0 +1,2 @@
+candidate,character,difficulty,repeat,status,reason,wave,move_ratio,duration,min_hp,max_hp,profile
+baseline,character_ranger,6,1,OK,WAVE_CLEARED_TIMER,4,0.97,30,7,9,"{caution:1.56, gold:0.8, lethality:4.14}"

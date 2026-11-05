@@ -1,0 +1,59 @@
+name: build
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build mod zip
+        run: |
+          bash build.sh
+          ls -la dist/
+
+      - name: Validate zip layout, manifest and version
+        run: |
+          python3 - <<'PY'
+          import glob, json, zipfile
+
+          zips = sorted(glob.glob("dist/AutoBattler-*-fork.zip"))
+          assert zips, "build.sh produced no zip"
+          path = zips[-1]
+          with zipfile.ZipFile(path) as z:
+              names = z.namelist()
+              manifest_path = "mods-unpacked/Pasha-AutoBattler/manifest.json"
+              assert manifest_path in names, f"missing {manifest_path}, got {names[:5]}"
+              manifest = json.loads(z.read(manifest_path))
+              version = manifest["version_number"]
+              assert f"VERSION=\"{version}\"" in open("build.sh").read(), \
+                  f"manifest version {version} != build.sh VERSION"
+
+              required = [
+                  "mods-unpacked/Pasha-AutoBattler/mod_main.gd",
+                  "mods-unpacked/Pasha-AutoBattler/autobattler_options.gd",
+                  "mods-unpacked/Pasha-AutoBattler/extensions/entities/units/player/"
+                  "player_movement_behavior.gd",
+                  "mods-unpacked/Pasha-AutoBattler/steering/arbiter.gd",
+                  "mods-unpacked/Pasha-AutoBattler/steering/world_view.gd",
+              ]
+              for name in required:
+                  assert name in names, f"missing {name}"
+              for name in names:
+                  assert not name.startswith("/") and ".." not in name.split("/"), name
+              print(f"OK {path}: version={version}, files={len(names)}")
+          PY
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoBattler-mod-zip
+          path: dist/*.zip
+          if-no-files-found: error

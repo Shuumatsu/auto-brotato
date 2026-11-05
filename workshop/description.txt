@@ -1,0 +1,51 @@
+[b]AutoBattler — movement autopilot for Brotato[/b]
+
+The character moves and dodges by itself during waves. [b]Every decision stays yours[/b]: level-up picks, shop buys/rerolls/locks, crates/consumables, "next wave", character/weapon/danger selection.
+
+[b]Controls[/b]
+[list]
+[*]Shift+Space — toggle the autopilot at any time (top-left HUD shows AUTOPILOT: ON/OFF)
+[*]It is ON by default; state is saved between sessions.
+[/list]
+
+[b]What it does[/b]
+[list]
+[*]Dodges bullets, chargers, AoE telegraphs, spawn markers
+[*]Kites at weapon range, collects materials/food/trees, avoids walls/corners
+[*]Behaviour priors are inferred from the build at runtime (HP/armor/dodge, lifesteal, "fire while moving", structures, economy mechanics) instead of a per-character lookup table
+[*]No shop or upgrade script extensions are installed — decisions are structurally untouched
+[/list]
+
+[b]Install (Steam)[/b]
+Subscribe, then start the game through Steam. ModLoader will load it from the Workshop folder. It needs nothing else (no ContentLoader, no Mod Options).
+
+[b]Notes / limits[/b]
+[list]
+[*]Tested on Brotato 1.2.0.1. Updates may break it; unsubscribing restores vanilla.
+[*]Single-player oriented; co-op not verified.
+[*]Not affiliated with Blobfish or the original BOTato author.
+[/list]
+
+[b]Credits & license[/b]
+Steering/perception core is from [url=https://github.com/boardengineer/botato]BOTato[/url] by boardengineer / Pasha, MIT License (license included in the zip). This is a slim fork: auto-shop / auto-level-up / co-op helpers removed, adaptive build-trait profile added, defaults and HUD changed.
+
+[hr][/hr]
+
+[b]中文说明[/b]
+
+角色在波次内自动走位、闪避、捡材料；[b]所有决策仍然由你来做[/b]：升级三选一、商店购买/刷新/锁定、开箱/消耗品、点"下一波"、角色/武器/难度选择。
+
+控制：Shift+Space 随时开关（默认开启，左上角 HUD 显示状态，开关会保存）。
+
+本 Mod 只装了"走位"相关的两个最小扩展，不装任何商店/升级扩展；角色行为参数从实时 build 数据（血量/护甲/闪避、吸血、能否移动射击、结构物、经济机制等）自动推导，不再依赖逐角色手写表。
+
+已在 Brotato 1.2.0.1 单机实测（第 1 波）。联机未验证；游戏更新可能失效，退订即恢复原版。
+
+致谢：走位 AI 来自开源项目 BOTato（MIT，作者 boardengineer / Pasha），许可文件随 zip 附带。
+
+
+[b]Changelog[/b]
+[list]
+[*]2.2.2 — adaptive behaviour profile now also infers economy/food/tree mechanics; local tuning hook (user://auto-battler-overrides.json); docs.
+[*]2.2.1 — first public build.
+[/list]

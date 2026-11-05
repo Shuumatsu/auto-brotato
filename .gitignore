@@ -1,0 +1,18 @@
+# build output / local artifacts
+dist/
+_tools/
+
+# research artifacts: decompiled game code, logs, saves, harness build output.
+# Do NOT publish these (copyrighted game code / personal data).
+_research/
+
+# benchmark run logs and Python caches
+calibration/logs/
+__pycache__/
+*.pyc
+
+# generated workshop upload copy (CI stages it from dist/)
+workshop/*.zip
+
+# macOS
+.DS_Store

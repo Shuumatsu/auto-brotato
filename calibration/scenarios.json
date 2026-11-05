@@ -1,0 +1,8 @@
+{
+  "scenarios": [
+    {"character": "character_ranger",  "difficulty": 3},
+    {"character": "character_soldier", "difficulty": 3},
+    {"character": "character_knight",  "difficulty": 3}
+  ],
+  "note": "one episode per game launch; difficulty 3 gives enough pressure to separate weight candidates"
+}
