@@ -1,0 +1,7 @@
+{
+  "scenarios": [
+    {"character": "character_ranger", "difficulty": 6, "start_wave": 3},
+    {"character": "character_ranger", "difficulty": 3, "start_wave": 1}
+  ],
+  "note": "v2.3.0 strategy A/B (design §5): S1 ranged kiting = Ranger Danger 6 starting at wave 3; S2 economy = Ranger Danger 3 starting at wave 1. One episode per game launch; repeats are controlled by --repeats. The two scenarios differ in difficulty, so their per-run log files (candidate_character_d<difficulty>_r<repeat>.log) do not collide."
+}

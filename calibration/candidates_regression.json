@@ -1,0 +1,7 @@
+{
+  "candidates": [
+    {"name": "control", "overrides": {"kite": 0, "tree": 0, "food": 0, "plan": 0, "adapt": 0}},
+    {"name": "full", "overrides": {}}
+  ],
+  "note": "v2.3.0 regression A/B (design §5 S3): control = exact 2.2.2 behaviour, full = 2.3.0 defaults. Run against scenarios_wave3.json (Ranger/Soldier/Knight, Danger 6, start wave 3) with --repeats 1: 6 runs, ~5-6 min."
+}

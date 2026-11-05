@@ -26,7 +26,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$PWD"
-NAME="AutoBattler-2.2.2-fork"
+VERSION="$(python3 -c 'import json;print(json.load(open("mod/mods-unpacked/Pasha-AutoBattler/manifest.json"))["version_number"])' 2>/dev/null || echo 2.3.0)"
+NAME="AutoBattler-${VERSION}-fork"
 STEAM_ROOT="${STEAM_ROOT:-$HOME/Library/Application Support/Steam}"
 APP_ID="1942280"
 

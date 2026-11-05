@@ -45,7 +45,7 @@ Brotato 的玩法决定了自动操作其实**只需要接管移动**：武器�
 ## 二、安装（Steam / macOS）
 
 > **当前状态（2026-11 实测后）**：本 Mod 已安装到你的游戏里：
-> `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.2.2-fork.zip`
+> `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.3.0-fork.zip`
 > （借用了 Mod Options 的工坊 item 目录）。测试用的 harness 已删除，其它 8 个 Mod 已恢复，
 > 测试前的 run 存档已还原。启动游戏即可生效；卸载/重装用 `./install.sh`。
 
@@ -59,7 +59,7 @@ cd auto-brotato
 脚本会：
 1. 自动定位 Brotato 安装目录；
 2. 找到你已安装的创意工坊 mod 目录（默认挑第一个，例如 Mod Options 的 `3598984651`）；
-3. 把构建好的 `dist/AutoBattler-2.2.2-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
+3. 把构建好的 `dist/AutoBattler-2.3.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
 
 然后**从 Steam 启动 Brotato**即可。
 
@@ -78,7 +78,7 @@ cd auto-brotato
 
 1. 启动 Steam（需登录拥有 Brotato 的账号）；
 2. 打开 `<Brotato>/GodotWorkshopUtility.app`；
-3. 选择 `dist/AutoBattler-2.2.2-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
+3. 选择 `dist/AutoBattler-2.3.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
    （可见性选"私有/不公开"也可以，自己订阅即可）；
 4. 上传后在 Steam 创意工坊订阅该 item，正常启动游戏。
 
@@ -119,6 +119,10 @@ cd auto-brotato
 - 高级调参（可选，在 Steam 启动选项里加参数）：`--arb-every=2`（降决策频率、省性能）、
   `--arb-every=0`（自适应）、`--arb-charprofile=0`（关闭角色特化）。可用键名见
   `mod/mods-unpacked/Pasha-AutoBattler/steering/arbiter.gd` 的 `apply_overrides()`。
+- v2.3.0 新开关：`--arb-kite=<W>`（远程保持距离，0=关）、`--arb-tree=<M>`（默认树价值倍数，0=关）、
+  `--arb-food=<M>`（受伤时果子价值倍数，0=关）、`--arb-plan=<0|1>`（2 步前瞻，0=纯贪心）、
+  `--arb-adapt=<0|1>`（受击后临时警戒）。同一批键也可以写进
+  `user://auto-battler-overrides.json`。
 - 若发现角色不动：先看 HUD 是否 `ON`；再确认 mod 是否被加载
   （`~/Library/Application Support/Brotato/logs/modloader.log` 里应有 `Pasha-AutoBattler`）。
 
@@ -167,7 +171,105 @@ cd auto-brotato
 - **v1 已知局限**：经济/食物/树已按机制推导（2.2.1），但仍未覆盖所有冷门角色被动；
   极端/特殊 build 仍可能需要 `--arb-*` 微调。游戏内完整验证待下一轮 benchmark。
 
+
+## 五点五、v2.3.0 策略升级（多步规划 / 风筝 / 机会项 / 自适应）
+
+2.2.x 的走位是一个**单步贪心**：每物理帧对约 29 个候选方向做一次 0.8 秒解析预测，取代价最小。
+它解释了 2.2.x 能被观察到的一类"不聪明"：远程角色贴脸、静场不砍树、掉血不吃果子。
+
+### 1. 远程 standoff（风筝）
+
+旧代价函数里，击杀收益在武器射程内是**平的**——站在 50px 和 380px 得分一样，
+没有任何项奖励"保持在射程边缘"，所以远程 build 会被击杀收益一路拉近。
+v2.3.0 增加一个 standoff 项：对候选的**终点位置**计算到最近目标的距离，
+在 `kite_frac × weapon_range`（默认 0.75）环内按距离收费，环外不收费；
+掉血时环放大（`--arb-kitehp`，旧 field controller 的 `KITE_HP_FACTOR` 语义）。
+配合原有的击杀收益，形成"在射程边缘"的势井，而不是排斥场。
+全近战/无武器 build 的 `kite_frac = 0`，该项完全不生效；`--arb-kite=0` 为精确控制臂。
+
+### 2. 机会项：树与果子
+
+- **砍树**：树被砍掉会掉 consumable + 材料（`main.gd::_on_neutral_died → spawn_loot`），
+  但旧推理只在角色带"树木机制"时给 `tree_value`，普通角色是 0，树永远进不了评分。
+  v2.3.0 给所有非 cryptid 角色一个小的默认树价值（静场时才会去砍，威胁项仍能否决）。
+- **吃果子**：旧代价里食物只是 tie-breaker（量级 1-5），远小于威胁项 15-65；
+  掉血时也不会为果子转向。v2.3.0 把"受伤时的果子"提升为机会项：
+  `food_mult × min(FOOD_MAX, missing_hp)`（默认 2.5，上限 30），全血时仍不浪费（`bank` 语义）。
+  波次结束时游戏会自动吸取剩余 consumable，所以全血不吃不亏。
+
+### 3. 2 步前瞻（receding-horizon，2-ply）
+
+单步贪心"每 0.8 秒局部正确，加起来可能走进死角"（源码注释里大量 pin/herding 补丁就是证据）。
+v2.3.0 在初次 sweep 后，对角度分散的前 K（默认 4）个第一动作各做一层展开：
+威胁按 0.8 秒推进到**下一个决策点**（`_advance_threats`），在推进后的世界里
+用同一套 `_cost` 再评 8 方向 + 站立，取最便宜的接续，`total = score1 + γ·cost2`
+（γ=0.6）。planner 只当第一动作的 tie-breaker，不改变威胁模型本身。
+保护：`--arb-plan=0` 精确回退贪心；威胁数 >90 或威胁为空或贪心冠军是"站立"时跳过；
+`_prepare()` 写的 13 个 prepared 数组与标志用引用保存/恢复，planner 结束后主流程状态不变。
+
+### 4. 受击自适应
+
+单次决策内 `hp_ratio` 掉 ≥12% 时，进入 `--arb-adaptsecs`（默认 2 秒）警戒期，
+威胁权重 ×(1+0.25)，与 caution/pin 共用同一组 saved 权重并一起恢复；
+room/wall/dps 不动（避免受伤后变中心蹲）。`--arb-adapt=0` 回退。
+
+### 5. 性能
+
+2 步前瞻带来约 36 次额外 `_cost` 评估（beam 4 × (8+1)），headless 实测约 2.4×：
+20/60/90 威胁下 plan0 = 0.42/1.08/1.55ms → plan1 = 1.07/2.69/3.87ms。
+>90 威胁自动跳过规划；仍嫌慢可用 `--arb-plan=0`、`--arb-beam=2/3` 或 `--arb-planthreats` 降阈值。
+
 ## 六、验证状态（诚实说明）
+
+### v2.3.0 策略升级验证（2026-11-06，本地真实游戏 + 自动 harness）
+
+方法：真实游戏自动开局（Steam），`control` = 所有新开关关（精确 2.2.2 行为），
+`full` = 2.3.0 默认。指标：清波率、掉血、最低 HP、`nearE/wrange`（每秒最近敌人距离 / 武器射程的中位数）、
+决策耗时 `us`、`plan=`/`adapt=` 开关遥测。全部为 Brotato 1.2.0.1、Danger 6/3、Ranger 等起始武器无成长 build；
+**样本量小（每臂 3-6 局），以下按"未发现退步 + 方向性信号"理解，不是统计显著结论。**
+
+**1.0x A/B（Ranger，D6 从 wave 3 + D3 wave 1，n=3/场景/臂，共 18 局）**
+
+| 臂 | 清波 | 平均掉血 | 最低 HP | D6 nearE | D3 nearE | 决策 us |
+|---|---|---|---|---|---|---|
+| control | 6/6 | 2.00 | 4 | 176 | 537 | 391 |
+| tactics（弱化版开关） | 6/6 | 2.17 | 4 | 156 | 477 | 419 |
+| full（2.3.0 默认） | 6/6 | 2.00 | 5 | 185 | 549 | 726 |
+
+- 清波与掉血无差异；`full` 的最低 HP 略高（5 vs 4），`nearE` 略远（D6 +5%，D3 +2%），在噪声内。
+- planner 在 `full` 的 D6 采样点里 **82%** 处于启用状态（8 方向 2-ply），`adapt` 触发约 5% 采样点；
+  决策耗时约 **1.9×**（仍远低于 16.7ms 帧预算，威胁数 >90 时自动跳过规划）。
+
+**2.0x 调参 A/B（Ranger，D6 wave3 / D6 wave6 / D3 wave1，n=1/场景/臂，共 9 局）**
+
+| 臂 | 清波 | 平均掉血 | 最低 HP | nearE/wrange | 决策 us |
+|---|---|---|---|---|---|
+| control | 2/3 | 3.00 | 1 | 0.31 | 433 |
+| full（默认） | 2/3 | 1.67 | 4 | 0.55 | 1131 |
+| strong（kite30/tree2/food4） | 2/3 | 2.67 | 2 | 0.49 | 968 |
+
+- 方向性信号：默认权重优于"更强 tactics"；把 standoff/树/果子放大反而更差，所以默认值没有再加大。
+- 2.0x 是"裸 time_scale"加速，AI 每游戏秒的决策数减半，只用于相对比较（见下"测试加速"）。
+
+**3.0x + 物理补偿确认（Ranger D6 wave6 / Soldier D6 wave3，control vs full，n=3/场景/臂，共 12 局）**
+
+| 场景 | control | full |
+|---|---|---|
+| Ranger D6 wave6 生存 | 9 / 19 / 19 s（均 15.7s） | 12 / 22 / 19 s（均 17.7s，+2s） |
+| Soldier D6 wave3 | 3/3 清波，掉血 9/6/6 | 2/3 清波，掉血 8/9/10 |
+
+- Ranger 的生存秒数方向性变好（+13%），但 Soldier 出现 1 次死亡（n=3，不能区分噪声）。
+- **结论：没有发现一致退步，也没有足够样本宣称"明显变强"**；真正能拉开差距的是玩家自己的中后期 build/波次，
+  建议用 `--arb-plan=0` / `--arb-kite=0` 做个人 A/B。
+
+**测试加速（harness `user://harness_scenario.json` 的 `"speed"` 字段）**
+
+- 裸加速：`Engine.time_scale = s`。Brotato 自带 debug 菜单用的也是这个；2x 下 30s 波约 15s 实际时间。
+  代价：物理 tick 仍是 60/s，**AI 每游戏秒的决策数变成 60/s**（1x 是 60），只适合相对 A/B。
+- 补偿加速：`Engine.time_scale = s` 且 `Engine.iterations_per_second = 60*s`（运行时 settable，已验证）。
+  每个 tick 推进的**游戏时间仍是 1/60 秒**，AI 决策频率、帧计数常量、子弹碰撞粒度都不变，CPU 随 s 线性增加。
+  3x 确认批次用的就是这个模式。>3x 会受 CPU 预算限制（决策耗时 × 帧率），收益递减。
+
 
 **已完成：真实游戏实测（Brotato 1.2.0.1，2026-11 更新后）**
 
@@ -251,9 +353,9 @@ auto-brotato/
 ├── README.md                    # 项目主页（简短宣传）
 ├── docs/TECHNICAL.md            # 本文件（详细技术文档）
 ├── install.sh                   # 安装/卸载（Steam 工坊注入 / 非 Steam mods 目录）
-├── build.sh                     # 构建 dist/AutoBattler-2.2.2-fork.zip
+├── build.sh                     # 构建 dist/AutoBattler-2.3.0-fork.zip
 ├── dist/
-│   └── AutoBattler-2.2.2-fork.zip
+│   └── AutoBattler-2.3.0-fork.zip
 ├── mod/                         # Mod 源码（zip 内容）
 │   ├── LICENSE                  # 上游 BOTato MIT 许可
 │   ├── README-FORK.md           # 随 zip 分发的说明
@@ -290,7 +392,7 @@ auto-brotato/
 工作流（`.github/workflows/`）：
 
 - **build.yml**：push / PR 时构建 zip，校验 zip 结构、manifest 版本与 `build.sh` 一致，上传 artifact。
-- **release.yml**：push tag（`v2.2.2` 这种格式）或在 Actions 页面手动 `Run workflow` 时：
+- **release.yml**：push tag（`v2.3.0` 这种格式）或在 Actions 页面手动 `Run workflow` 时：
   - 构建并校验版本
   - 生成**单个发布整包** `AutoBattler-v<version>.zip`（内含 Mod 本体 + `preview.png` + `description.txt` + README/LICENSE/INSTALL）
   - 创建 GitHub Release，**只挂这一个附件**；SHA256 写在 release notes 里

@@ -1,0 +1,8 @@
+{
+  "scenarios": [
+    {"character": "character_ranger", "difficulty": 6, "start_wave": 3, "speed": 2.0},
+    {"character": "character_ranger", "difficulty": 6, "start_wave": 6, "speed": 2.0},
+    {"character": "character_ranger", "difficulty": 3, "start_wave": 1, "speed": 2.0}
+  ],
+  "note": "v2.3.0 tuning sweep at 2.0x game speed (Engine.time_scale via harness). Ranger: D6 wave3 (dense), D6 wave6 (harder, planner/adapt should matter), D3 wave1 (economy/quiet). One run per scenario = 9 runs, ~5 min total."
+}

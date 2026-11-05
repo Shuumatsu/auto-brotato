@@ -345,6 +345,62 @@ const W_TANGENT = 30.0           # while ESCAPING: reward motion ALONG the neare
                                  # Sweep via --arb-tangent.
 const TANGENT_RADIUS = 200.0     # wall proximity ramp for the tangent reward
 
+# -- v2.3.0: standoff ring (kite) --
+# Field report: ranged characters walk in and fight at contact. The cause is
+# structural, not a weight: the kill reward is FLAT inside weapon range (reach
+# = 1.0), so ending 50 px from a bruiser scores exactly like ending 380 px
+# away, and nothing rewards holding the edge of the range. The old field
+# controller's KITE_HP_FACTOR / KITE_REPEL_MULT constants went away with it.
+# This is its replacement, as one more term in the same HP unit: price the
+# END position's distance to the nearest target, zero at the ring and growing
+# as the candidate ends closer. Costs only -- the kill/acquire terms already
+# pull INTO range, so the pair forms a well at the ring instead of a repulsion
+# field. --arb-kite=0 is the exact control arm (the term is skipped whole).
+# The ring is a share of weapon range (profile kite_frac, 0 for melee), and it
+# WIDENS as the bar drops (--arb-kitehp, the old KITE_HP_FACTOR semantics:
+# keep more distance when a hit matters more).
+const W_KITE = 10.0              # standoff cost weight, in HP units
+const KITE_HP_GROWTH = 0.4       # ring grows by +40% at zero HP (x hp deficit)
+
+# -- v2.3.0: 2-ply receding-horizon planner --
+# choose() used to be single-step greedy: ~29 candidates scored by one 0.8 s
+# analytic prediction, argmin. Every frame is locally right and the sum can be
+# wrong -- walking into a state that is expensive AT THE NEXT DECISION POINT
+# (a pocket the pack is about to close, a dash lane entered from the wrong
+# side). The fix is one extra ply on the same cost function, no new model:
+# take the K best first headings, advance the threats by one decision interval,
+# re-score a coarse second move set from where that heading ends, and add the
+# discounted best continuation to the first move's score. The second ply is a
+# TIE-BREAKER for our first move, not an enemy forecast (threats are
+# extrapolated at constant velocity, targets/rewards held static).
+# --arb-plan=0 is the exact greedy control.
+const PLAN_BEAM = 4              # first moves given a second ply (--arb-beam)
+const PLAN_DIRS = 8              # second-ply move set: 8 headings + stand
+const PLAN_GAMMA = 0.6           # second-ply discount (--arb-gamma)
+const PLAN_MAX_THREATS = 90      # skip planning above this threat count; the
+                                 # second ply is K x (DIRS+1) extra evaluations,
+                                 # and a 90+ threat frame is already the expensive
+                                 # one -- the frame-rate guard, not a tuning knob
+const PLAN_DEDUPE_BINS = 1.05    # angular de-duplication for the beam: headings
+                                 # within ~one sweep bin of an already-picked one
+                                 # are the same first move twice, so the beam stays
+                                 # angularly spread instead of clustering
+
+# -- v2.3.0: hit-adaptive alert --
+# A build that just took a big hit should behave more cautiously for a moment.
+# Online, cheap, and trivially switchable: compare hp_ratio with the previous
+# decision, and when a single decision loses ADAPT_DROP of the bar start an
+# alert that multiplies the THREAT weights by (1 + adaptgain) for adaptsecs.
+# Deliberately only the threat weights (same set caution scales): room/wall
+# must not change, or the character turns into a centre-hugger on damage.
+# Composes with caution and pin discount through the SAME saved array, so a
+# restore cannot miss it. --arb-adapt=0 is the control arm.
+const ADAPT_DROP = 0.12          # hp_ratio lost in one decision that fires the alert
+const ADAPT_GAIN = 0.25          # threat-weight boost while alerted (--arb-adaptgain)
+const ADAPT_SECS = 2.0           # alert duration in seconds (--arb-adaptsecs)
+const ADAPT_MIN_TICKS = 30       # ...but at least this many decisions, so a fast
+                                 # decision interval cannot blink the alert away
+
 # -- Threat kinds --
 const KIND_PROJ = 0
 const KIND_CONTACT = 1
@@ -433,6 +489,19 @@ var w_room_far = W_ROOM_FAR      # --arb-roomfar
 # exact control arm rather than an approximation of one.
 var scan_distance = SCAN_DISTANCE
 
+# v2.3.0 switches (see the constant blocks above). Defaults are the new
+# behaviour; every one has an exact control arm: w_kite=0, plan_depth=0,
+# adapt_enable=0. They are instance vars so --arb-* can sweep them.
+var w_kite = W_KITE              # --arb-kite
+var kite_hp_growth = KITE_HP_GROWTH  # --arb-kitehp
+var plan_depth = 1               # --arb-plan: 0 greedy / 1 two-ply
+var plan_beam = PLAN_BEAM        # --arb-beam
+var plan_gamma = PLAN_GAMMA      # --arb-gamma
+var plan_max_threats = PLAN_MAX_THREATS  # --arb-planthreats
+var adapt_enable = 1.0           # --arb-adapt
+var adapt_gain = ADAPT_GAIN      # --arb-adaptgain
+var adapt_secs = ADAPT_SECS      # --arb-adaptsecs
+
 var pin_enable = 0.0             # --arb-pin=1 turns the escape mode on; default OFF
 var pin_threat = PIN_THREAT      # --arb-pinthreat
 var w_predict = W_PREDICT        # --arb-predict
@@ -505,6 +574,13 @@ var _explode_trade = false
 # Bullets, dashes and elites are never in either pool.
 var _damage_dive = false         # profile key damage_dive
 var _hp_ratio = 1.0              # profile key hp_ratio (world_view computes it)
+# v2.3.0 per-frame state. _kite_r is the standoff ring in px, resolved once in
+# choose() from profile kite_frac x weapon_range; _prev_hp_ratio is the last
+# decision's bar reading and _adapt_ticks the decisions of alert left to run.
+var _kite_frac = 0.0             # profile key kite_frac (0 for melee/weaponless)
+var _kite_r = 0.0                # standoff ring: 0 => kite term inert
+var _prev_hp_ratio = -1.0        # -1 sentinel: the first decision has no "drop"
+var _adapt_ticks = 0             # decisions of hit-adaptive alert still running
 var _blast = 0.0                 # profile key blast: damage the explosion deals per body
 const DAMAGE_DIVE_HP = 0.5       # bar needed to trade hits with bodies that live
 const DAMAGE_DIVE_MIN = 350.0    # blast x bodies-in-blast that makes the trade worth it
@@ -530,6 +606,10 @@ var last_engage = 0.0            # resolved contact-seeking weight this frame, f
 var last_dir = Vector2.ZERO      # read for hysteresis and by telemetry
 var last_still_gap = 0.0         # cost(stand) - cost(best); overlay only now
 var last_stutter_gap = 0.0       # cost(best at stutter speed) - cost(best); the tap gate
+var last_plan_used = false       # v2.3.0: the 2-ply planner produced the first action
+var last_plan_evals = 0          # v2.3.0: _cost evaluations the planner spent this frame
+var last_kite_cost = 0.0         # v2.3.0: standoff cost paid by the chosen candidate
+var last_adapt = false           # v2.3.0: hit-adaptive alert active this frame
 var last_scores = []             # per-candidate cost, for the debug overlay
 var last_dirs = []               # candidate directions matching last_scores
 var last_best_index = -1
@@ -619,11 +699,24 @@ func apply_overrides(d: Dictionary) -> void:
 	if d.has("neverstill"): never_still_scan = float(d["neverstill"])
 	if d.has("cnear"): cluster_near = float(d["cnear"])
 	if d.has("cluster"): cluster_override = int(d["cluster"])
+	# v2.3.0 switches: standoff ring, 2-ply planner, hit-adaptive alert.
+	if d.has("kite"): w_kite = float(d["kite"])
+	if d.has("kitehp"): kite_hp_growth = float(d["kitehp"])
+	if d.has("plan"): plan_depth = int(d["plan"])
+	if d.has("beam"): plan_beam = max(int(d["beam"]), 0)
+	if d.has("gamma"): plan_gamma = float(d["gamma"])
+	if d.has("planthreats"): plan_max_threats = max(int(d["planthreats"]), 0)
+	if d.has("adapt"): adapt_enable = float(d["adapt"])
+	if d.has("adaptgain"): adapt_gain = float(d["adaptgain"])
+	if d.has("adaptsecs"): adapt_secs = max(float(d["adaptsecs"]), 0.0)
 	if not d.empty():
 		print("ARBITER weights: proj=%.2f contact=%.2f dash=%.2f aoe=%.2f latent=%.2f room=%.2f roomcap=%.0f wall=%.2f enclose=%.2f dps=%.2f pickup=%.2f hyst=%.2f lethality=%.2f horizon=%.2f pin=%.2f pinthreat=%.2f predict=%.2f predsecs=%.2f tangent=%.2f swerve=%.2f anchor=%.2f" % [
 			w_proj, w_contact, w_dash, w_aoe, w_latent, w_room, room_cap, w_wall,
 			w_enclose, w_dps, w_pickup, w_hyst, lethality, horizon, pin_enable, pin_threat,
 			w_predict, predict_secs, w_tangent, wall_swerve, w_anchor])
+		print("ARBITER v2.3.0: kite=%.2f kitehp=%.2f plan=%d beam=%d gamma=%.2f planthreats=%d adapt=%.2f adaptgain=%.2f adaptsecs=%.2f" % [
+			w_kite, kite_hp_growth, plan_depth, plan_beam, plan_gamma,
+			plan_max_threats, adapt_enable, adapt_gain, adapt_secs])
 
 
 # Returns the chosen unit direction, or ZERO to stand still.
@@ -697,6 +790,37 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 	_never_still = profile.get("never_still", false) and never_still_scan != 0.0
 	_fire_still = profile.get("fire_still", false)
 
+	# -- v2.3.0: standoff ring (see the W_KITE block) --
+	# world_view writes kite_frac every frame: a share of weapon range when the
+	# build carries a ranged weapon, 0.0 otherwise. The ring widens as the bar
+	# drops (kitehp), and w_kite=0 leaves _kite_r = 0 so _cost skips the term
+	# entirely -- the exact control arm.
+	_kite_frac = float(profile.get("kite_frac", 0.0))
+	_kite_r = 0.0
+	if w_kite > 0.0 and _kite_frac > 0.0 and weapon_range > 0.0:
+		_kite_r = _kite_frac * weapon_range * (1.0 + kite_hp_growth * (1.0 - _hp_ratio))
+
+	# -- v2.3.0: hit-adaptive alert (see the ADAPT_* block) --
+	# Compare this decision's bar with the last one. -1 is the first-decision
+	# sentinel: a wounded character entering a wave must not read its missing
+	# health as a fresh hit. The countdown is in DECISIONS: the initial length
+	# converts seconds through tick_step (adapt_secs*60/tick_step), and then
+	# every choose() call burns exactly ONE decision, whichever multiple of
+	# physics ticks that decision stands for. Decrementing by tick_step here
+	# instead would shrink the alert to 1/tick_step of its nominal length once
+	# --arb-every=0/-N skips ticks (2 s became ~1.0 s at tick_step 2, ~0.67 s
+	# at 3). The floor keeps a fast decision cadence from blinking it away.
+	if _prev_hp_ratio < 0.0:
+		_prev_hp_ratio = _hp_ratio
+	last_adapt = false
+	if adapt_enable != 0.0:
+		if _adapt_ticks > 0:
+			_adapt_ticks -= 1
+		if _prev_hp_ratio - _hp_ratio >= ADAPT_DROP:
+			_adapt_ticks = max(int(round(adapt_secs * 60.0 / float(max(tick_step, 1)))), ADAPT_MIN_TICKS)
+		last_adapt = _adapt_ticks > 0
+	_prev_hp_ratio = _hp_ratio
+
 	# Scaled BEFORE _prepare, deliberately: the per-kind weight is baked into
 	# _p_coef in there (see the kw assignment), so discounting these afterwards
 	# would compile cleanly, change nothing, and hand back a convincing null.
@@ -710,7 +834,10 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 	# different (and mostly wrong) behaviour.
 	var caution = float(profile.get("caution", 1.0))
 	var dps_scale = float(profile.get("dps", 1.0))
-	var scaled = escaping or caution != 1.0 or dps_scale != 1.0
+	var adapt_scale = 1.0
+	if _adapt_ticks > 0:
+		adapt_scale = 1.0 + adapt_gain
+	var scaled = escaping or caution != 1.0 or dps_scale != 1.0 or adapt_scale != 1.0
 	var saved = []
 	if scaled:
 		saved = [w_proj, w_contact, w_dash, w_aoe, w_latent, w_dps, w_room, w_wall]
@@ -720,6 +847,15 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 		w_dash *= caution
 		w_aoe *= caution
 		w_latent *= caution
+	if adapt_scale != 1.0:
+		# The alert rides the SAME five threat weights caution scales and the
+		# same saved array restores: room/wall/dps are deliberately untouched,
+		# so a hit makes the potato respect threats more, not hug the centre.
+		w_proj *= adapt_scale
+		w_contact *= adapt_scale
+		w_dash *= adapt_scale
+		w_aoe *= adapt_scale
+		w_latent *= adapt_scale
 	if dps_scale != 1.0:
 		# Weaponless kits (Bull) and kits that cannot kill (Pacifist): the kill
 		# reward would only drag them toward things they have no way to shoot.
@@ -754,6 +890,93 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 		if c < best_cost:
 			best_cost = c
 			best_i = i
+
+	# -- v2.3.0: 2-ply receding-horizon plan (see the PLAN_* block) --
+	# The primary sweep is single-step greedy. Give the best K distinct FIRST
+	# headings one extra ply on the same cost function: advance the threat set
+	# to the next decision point, prepare there, and take the cheapest coarse
+	# continuation (8 headings + stand). total = score1 + gamma * best2.
+	# A tie-breaker for OUR first move, not an enemy forecast: constant velocity
+	# for threats, targets/rewards held static (see _advance_threats).
+	# Guards: --arb-plan=0 (exact greedy control), a threat count above
+	# --arb-planthreats (frame-rate), no threats at all (nothing to plan around;
+	# quiet frames must stay cheap), and a greedy ZERO winner (standing first is
+	# not a rollout: the beam excludes ZERO by design, so overriding it would
+	# force movement on fire_still/Streamer stands).
+	last_plan_used = false
+	last_plan_evals = 0
+	if plan_depth > 0 and plan_beam > 0 and not threats.empty() \
+			and threats.size() <= plan_max_threats and best_i != DIRS:
+		var beam = _plan_beam_indices(cands, scores, plan_beam)
+		if not beam.empty():
+			# World state at the NEXT decision point: depends only on time, not
+			# on which first move is being priced, so it is built once.
+			var plan_threats = _advance_threats(threats, horizon)
+			var plan_chargers = _advance_chargers(chargers, horizon)
+			# _prepare() rewrites thirteen arrays plus two flags. Save the
+			# references -- O(1), because _prepare assigns NEW arrays and never
+			# mutates the old ones -- and put them back whatever happens below.
+			var saved_prepared = [_p_pos, _p_vel, _p_rad, _p_soft, _p_coef,
+					_p_still, _p_kill, _p_mark, _p_aimed, _p_start, _p_end,
+					_p_future, _p_far]
+			var saved_hop_wanted = _hop_wanted
+			var saved_aoe_n = last_aoe_n
+			var saved_last_dir = last_dir
+			var plan_best = -1
+			var plan_best_total = 1e18
+			for pi in beam:
+				var d1 = cands[pi]
+				# Where this first move ENDS under the same wall clamp _cost
+				# applies: the second decision starts from there.
+				var p1 = p0 + d1 * speed * horizon
+				p1.x = clamp(p1.x, body_radius, far.x - body_radius)
+				p1.y = clamp(p1.y, body_radius, far.y - body_radius)
+				# The next decision's hysteresis sees the first move as the
+				# previous heading, exactly as the real next frame will.
+				last_dir = d1
+				_prepare(p1, speed, body_radius, plan_threats, current_hp, mitigation)
+				var c2 = 1e18
+				for k2 in range(PLAN_DIRS):
+					var a2 = k2 * TAU / PLAN_DIRS
+					var c_next = _cost(Vector2(cos(a2), sin(a2)), p1, speed,
+							body_radius, far, rewards, targets, plan_chargers,
+							weapon_range, prefers_still, current_hp)
+					last_plan_evals += 1
+					if c_next < c2:
+						c2 = c_next
+				var c_stand = _cost(Vector2.ZERO, p1, speed, body_radius, far,
+						rewards, targets, plan_chargers, weapon_range,
+						prefers_still, current_hp)
+				last_plan_evals += 1
+				if c_stand < c2:
+					c2 = c_stand
+				var total = scores[pi] + plan_gamma * c2
+				if total < plan_best_total:
+					plan_best_total = total
+					plan_best = pi
+			_p_pos = saved_prepared[0]
+			_p_vel = saved_prepared[1]
+			_p_rad = saved_prepared[2]
+			_p_soft = saved_prepared[3]
+			_p_coef = saved_prepared[4]
+			_p_still = saved_prepared[5]
+			_p_kill = saved_prepared[6]
+			_p_mark = saved_prepared[7]
+			_p_aimed = saved_prepared[8]
+			_p_start = saved_prepared[9]
+			_p_end = saved_prepared[10]
+			_p_future = saved_prepared[11]
+			_p_far = saved_prepared[12]
+			_hop_wanted = saved_hop_wanted
+			last_aoe_n = saved_aoe_n
+			last_dir = saved_last_dir
+			if plan_best >= 0:
+				# Adopt the first move with the best DISCOUNTED two-ply total.
+				# best_cost goes back to its OWN first-ply score so the hop and
+				# refinement passes below keep comparing like with like.
+				best_i = plan_best
+				best_cost = scores[plan_best]
+				last_plan_used = true
 
 	# Hops (see HOP_FRAC): half-speed headings, offered only near a telegraph
 	# or a dash and never while escaping a pin (that flight wants every frame).
@@ -815,6 +1038,22 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 		last_stutter_gap = _cost(best_dir, p0, speed * STUTTER_SPEED_FRAC, body_radius,
 				far, rewards, targets, chargers, weapon_range, prefers_still,
 				current_hp) - best_cost
+
+	# Telemetry: the standoff cost the CHOSEN move actually paid. Re-scored
+	# here because per-candidate costs are not kept; one target loop per frame,
+	# and only while the kite term is live (the control arm pays nothing).
+	last_kite_cost = 0.0
+	if _kite_r > 0.0 and not targets.empty():
+		var kp = p0 + best_dir * best_speed * horizon
+		kp.x = clamp(kp.x, body_radius, far.x - body_radius)
+		kp.y = clamp(kp.y, body_radius, far.y - body_radius)
+		var knd_sq = 1e18
+		for t in targets:
+			var ksq = kp.distance_squared_to(t[TG_POS])
+			if ksq < knd_sq:
+				knd_sq = ksq
+		if knd_sq < _kite_r * _kite_r:
+			last_kite_cost = w_kite * (1.0 - sqrt(knd_sq) / _kite_r)
 
 	if scaled:
 		w_proj = saved[0]
@@ -995,6 +1234,76 @@ func _prepare(p0: Vector2, speed: float, body_radius: float, threats: Array,
 		_p_end.push_back(t_end)
 		_p_future.push_back(pos + vel * span)
 		_p_far.push_back(pos + vel * max(FAR_T - t[T_START], 0.0))
+
+
+# -- v2.3.0 planner helpers --
+
+# Advance the threat set to the NEXT decision point, HORIZON later, so the
+# second ply prices the world the bot will actually re-decide in. Constant
+# velocity and the same tuple layout, so _prepare/_cost consume it unchanged:
+#   pos   += vel * max(dt - start, 0)   nothing moves during its wind-up
+#   start  = max(start - dt, 0)         a dash that was winding up is now live
+#   end    = end - dt                   drop it once it is spent
+# TICKS/KILL/radius/damage are properties of the threat, not of the clock, so
+# they ride along untouched. Targets and rewards are treated as STATIC: enemies
+# walk, but this ply is a tie-breaker for OUR first move, not an enemy model --
+# extrapolating them would double-count a prediction the first ply already
+# prices as a threat. The cost is one small array per live threat per frame.
+func _advance_threats(ts: Array, dt: float) -> Array:
+	var out = []
+	for t in ts:
+		var start = float(t[T_START])
+		var end = float(t[T_END]) - dt
+		if end <= 0.0:
+			continue
+		var advanced = [t[T_POS] + t[T_VEL] * max(dt - start, 0.0),
+				t[T_VEL], t[T_RADIUS], t[T_DAMAGE], t[T_KIND],
+				max(start - dt, 0.0), t[T_TICKS], end]
+		if t.size() > T_KILL:
+			advanced.push_back(t[T_KILL])
+		out.push_back(advanced)
+	return out
+
+
+# Idle chargers are latent dashes: advance their cooldowns with the clock.
+# Only ready is time-dependent, so the tuples are rebuilt with one field moved.
+func _advance_chargers(cs: Array, dt: float) -> Array:
+	if cs.empty():
+		return cs
+	var out = []
+	for c in cs:
+		out.push_back([c[C_POS], c[C_RANGE], c[C_DAMAGE],
+				max(float(c[C_READY]) - dt, 0.0)])
+	return out
+
+
+# Beam for the second ply: the top K PRIMARY headings by first-ply score,
+# skipping ZERO (standing is not a rollout -- see the guard in choose) and
+# de-duplicated by angle so the beam does not spend four evaluations on
+# neighbouring 15-degree bins that price nearly the same first move. Returns
+# indices into cands. size(K * DIRS * K) at worst (K=4: ~384 integer/float
+# compares) -- trivial next to one extra _cost pass.
+func _plan_beam_indices(cands: Array, scores: Array, limit: int) -> Array:
+	var out = []
+	var min_dot = cos(TAU / DIRS * PLAN_DEDUPE_BINS)
+	for _k in range(limit):
+		var pick = -1
+		var pick_score = 1e18
+		for i in range(DIRS):
+			var dup = false
+			for j in out:
+				if cands[i].dot(cands[j]) > min_dot:
+					dup = true
+					break
+			if dup:
+				continue
+			if scores[i] < pick_score:
+				pick_score = scores[i]
+				pick = i
+		if pick < 0:
+			break
+		out.push_back(pick)
+	return out
 
 
 func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vector2,
@@ -1322,6 +1631,23 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 				# does not stop when they walk: standing is just where their
 				# damage term pays out twice.
 				total -= dps_pay
+
+	# --- Standoff / kite (v2.3.0, see the W_KITE block) ---
+	# Price how close this candidate ENDS to the nearest target. Nothing here
+	# pays a bonus for being OUTSIDE the ring: the kill/acquire terms above
+	# already pay for being in weapon range, so a pure cost forms a well at
+	# kite_r instead of a repulsion field. Damage is what makes a hit matter, so
+	# the ring widens with the HP deficit (_kite_r, resolved in choose()). Skip
+	# the whole term when _kite_r == 0 (w_kite=0 control, melee builds, or no
+	# weapon), which is also why this costs nothing on the control arm.
+	if _kite_r > 0.0 and not targets.empty():
+		var nd_sq = 1e18
+		for t in targets:
+			var ksq = p_end.distance_squared_to(t[TG_POS])
+			if ksq < nd_sq:
+				nd_sq = ksq
+		if nd_sq < _kite_r * _kite_r:
+			total += w_kite * (1.0 - sqrt(nd_sq) / _kite_r)
 
 	# Standing income (Streamer, see world_view stand_income): the stand earns
 	# the tick for the whole horizon; any move forfeits the part of the current

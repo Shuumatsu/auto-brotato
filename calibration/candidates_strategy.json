@@ -1,0 +1,8 @@
+{
+  "candidates": [
+    {"name": "control", "overrides": {"kite": 0, "tree": 0, "food": 0, "plan": 0, "adapt": 0}},
+    {"name": "tactics", "overrides": {"kite": 1, "tree": 1, "food": 1, "plan": 0, "adapt": 0}},
+    {"name": "full", "overrides": {}}
+  ],
+  "note": "v2.3.0 strategy A/B (design §5). control = exact old behaviour (every new feature off, including planner depth 0). tactics = tactics fixes only: standoff on at weight 1, tree value multiplier 1, food multiplier 1, planner and adaptive caution off. full = no overrides, i.e. the new mod defaults (kite weight, tree/food multipliers, 2-ply planner and adaptive caution all active). Keys follow the --arb-* flags in design §3.2/§3.3 and are merged into user://auto-battler-overrides.json as floats; unknown keys are ignored by older builds. If the final default weights land far from these values, re-tune tactics (e.g. kite=10, tree=3, food=2.5) before running so it isolates the tactics features."
+}

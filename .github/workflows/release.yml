@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 2.2.2). Must match manifest.json."
+        description: "Release version (e.g. 2.3.0). Must match manifest.json."
         required: true
       tag:
         description: "Tag name (default: v<version>)"

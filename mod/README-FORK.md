@@ -7,7 +7,7 @@ shop or upgrade script extensions at all.
 
 - Toggle: **Shift + Space** (persisted in `user://auto-battler-fork.cfg`).
 - HUD: `AUTOPILOT: ON/OFF [Shift+Space]` in the top-left corner during runs.
-- Verified against the installed Brotato **1.1.15.4** (Godot 3.7.dev, built-in
+- Verified against the installed Brotato **1.2.0.1** (Godot 3.7.dev, built-in
   godot-mod-loader **6.3.0**).
 
 ## Files installed
@@ -42,6 +42,31 @@ Economy preferences are inferred from mechanics too (pickup-gold damage/reload,
 consumable healing/explosion, tree effects, harvesting). Known v1 gaps: rare
 build-specific passives may still fall back to generic values; extreme builds
 may want `--arb-*` overrides.
+
+## Strategy upgrade (2.3.0)
+
+The movement policy is still the candidate-action arbiter (score every heading,
+pick the least-bad), but v2.3.0 adds four things on top:
+
+- **Ranged standoff** — a kite term prices ending too close to the nearest
+  target: the bot holds ~75% of weapon range (wider when hurt) instead of
+  walking into contact. Melee/weaponless kits are untouched.
+- **Opportunity terms** — quiet-floor tree felling (trees drop a consumable +
+  material) and injured-fruit eating (a hurt potato now detours for fruit,
+  which was only a tie-breaker before). Full-HP fruit is still left on the
+  ground (the game vacuums leftovers at wave end).
+- **2-ply lookahead** — after the greedy sweep the best few first moves are
+  rolled one decision forward on the same threat model and re-scored
+  (beam 4 x 8 headings, gamma 0.6), so "locally safe" moves that walk into a
+  pocket can lose to ones that keep the next decision open.
+- **Hit-adaptive caution** — losing >=12% of the bar in one decision starts a
+  2 s alert that scales threat weights up 25%.
+
+Every item has an exact control arm: `--arb-kite=0`, `--arb-tree=0`,
+`--arb-food=0`, `--arb-plan=0`, `--arb-adapt=0`. New knobs:
+`--arb-kite`, `--arb-kitehp`, `--arb-plan`, `--arb-beam`, `--arb-gamma`,
+`--arb-planthreats`, `--arb-adaptgain`, `--arb-adaptsecs`, `--arb-tree`,
+`--arb-food` (also accepted from `user://auto-battler-overrides.json`).
 
 ## Install (Steam)
 

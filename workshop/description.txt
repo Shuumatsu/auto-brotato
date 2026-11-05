@@ -33,7 +33,9 @@ Steering/perception core is from [url=https://github.com/boardengineer/botato]BO
 
 [b]中文说明[/b]
 
-角色在波次内自动走位、闪避、捡材料；[b]所有决策仍然由你来做[/b]：升级三选一、商店购买/刷新/锁定、开箱/消耗品、点"下一波"、角色/武器/难度选择。
+角色在波次内自动走位、闪避、砍树、受伤后吃果子、捡材料；[b]所有决策仍然由你来做[/b]：升级三选一、商店购买/刷新/锁定、开箱/消耗品、点"下一波"、角色/武器/难度选择。
+
+v2.3.0 策略升级：远程 build 保持在射程边缘风筝而不是贴脸；静场会去砍树、掉血会去吃果子；每帧不再是单步贪心，而是 2 步前瞻规划；受击后 2 秒内临时提高警戒。所有新行为都有精确回退开关。
 
 控制：Shift+Space 随时开关（默认开启，左上角 HUD 显示状态，开关会保存）。
 
@@ -46,6 +48,7 @@ Steering/perception core is from [url=https://github.com/boardengineer/botato]BO
 
 [b]Changelog[/b]
 [list]
+[*]2.3.0 — smarter movement: ranged standoff/kiting, tree-felling and hurt-fruit opportunity terms, 2-ply lookahead planner, hit-adaptive caution; all with exact opt-out flags (--arb-kite / --arb-tree / --arb-food / --arb-plan / --arb-adapt).
 [*]2.2.2 — adaptive behaviour profile now also infers economy/food/tree mechanics; local tuning hook (user://auto-battler-overrides.json); docs.
 [*]2.2.1 — first public build.
 [/list]

@@ -1,0 +1,8 @@
+{
+  "candidates": [
+    {"name": "control", "overrides": {"kite": 0, "tree": 0, "food": 0, "plan": 0, "adapt": 0}},
+    {"name": "full", "overrides": {}},
+    {"name": "strong", "overrides": {"kite": 30, "tree": 2, "food": 4}}
+  ],
+  "note": "v2.3.0 tuning: control = exact old, full = shipped defaults (kite10/tree1/food2.5/plan1/adapt1), strong = much stronger tactics (kite30/tree2/food4) with planner+adapt on. Pick whichever beats control on damage/standoff without hurting clears."
+}

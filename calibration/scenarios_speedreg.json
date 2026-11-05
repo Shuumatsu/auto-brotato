@@ -1,0 +1,9 @@
+{
+  "scenarios": [
+    {"character": "character_ranger",  "difficulty": 6, "start_wave": 3, "speed": 2.0},
+    {"character": "character_soldier", "difficulty": 6, "start_wave": 3, "speed": 2.0},
+    {"character": "character_knight",  "difficulty": 6, "start_wave": 3, "speed": 2.0},
+    {"character": "character_ranger",  "difficulty": 3, "start_wave": 1, "speed": 2.0}
+  ],
+  "note": "v2.3.0 speed-up validation + regression: same scenarios as S1/S3 but Engine.time_scale=2.0 so each wave takes half the wall clock. Run with --repeats 1 and candidates_regression.json (control vs full): 8 runs, ~4-5 min. Compare the 2.0x control arm against the 1.0x control runs from results_strategy.csv to check the accelerator does not change the measured behaviour."
+}

@@ -1,0 +1,9 @@
+{
+  "scenarios": [
+    {"character": "character_ranger",  "difficulty": 6, "start_wave": 6, "speed": 3.0},
+    {"character": "character_ranger",  "difficulty": 3, "start_wave": 1, "speed": 3.0},
+    {"character": "character_soldier", "difficulty": 6, "start_wave": 3, "speed": 3.0},
+    {"character": "character_knight",  "difficulty": 6, "start_wave": 3, "speed": 3.0}
+  ],
+  "note": "v2.3.0 final validation at 3.0x with COMPENSATED physics rate (Engine.time_scale=3 + iterations_per_second=180, so game-time per tick stays 1/60 and AI cadence is unchanged). Ranger D6 wave6 = survival signal; Ranger D3 wave1 = economy; Soldier/Knight D6 wave3 = cross-character regression. candidates_regression.json, --repeats 1 -> 8 runs, ~4 min."
+}

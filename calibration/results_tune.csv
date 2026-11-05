@@ -1,0 +1,10 @@
+candidate,character,difficulty,repeat,status,reason,wave,move_ratio,duration,min_hp,max_hp,profile,trees,fruit,gold,nearE_median,us_avg
+control,character_ranger,6,1,OK,WAVE_CLEARED_TIMER,4,0.97,30,7,8,"{caution:1.58, gold:0.8, lethality:4.18}",2,2,67,129,439
+control,character_ranger,6,1,OK,DEATH,7,0.95,20,1,7,"{caution:1.6, gold:0.8, lethality:4.22}",1,0,42,115,650
+control,character_ranger,3,1,OK,WAVE_CLEARED_TIMER,2,0.84,20,6,8,"{caution:1.58, gold:0.8, lethality:4.18}",0,1,52,459,209
+full,character_ranger,6,1,OK,WAVE_CLEARED_TIMER,4,0.93,30,4,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:3}",0,0,62,275,1159
+full,character_ranger,6,1,OK,DEATH,7,0.96,25,7,7,"{caution:1.6, food:bank, gold:0.8, lethality:4.22, tree_value:3}",1,0,39,153,1901
+full,character_ranger,3,1,OK,WAVE_CLEARED_TIMER,2,0.95,20,7,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:3}",1,0,54,415,334
+strong,character_ranger,6,1,OK,WAVE_CLEARED_TIMER,4,0.93,30,7,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:6}",0,0,63,274,1082
+strong,character_ranger,6,1,OK,DEATH,7,0.95,22,2,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:6}",1,0,46,128,1435
+strong,character_ranger,3,1,OK,WAVE_CLEARED_TIMER,2,0.95,20,7,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:6}",0,0,52,281,387

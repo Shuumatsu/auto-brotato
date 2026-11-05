@@ -203,6 +203,29 @@ const FOOD_BOMB_RADIUS = 220.0   # chef/glutton: a fruit is a grenade, and its v
 const FOOD_BOMB_PER = 3.0        # is the enemies standing in its blast, not its heal
 const FOOD_BOMB_MAX = 9.0
 const FOOD_BOMB_ALONE = -1.5     # detonating on an empty floor wastes the whole pickup
+
+# -- v2.3.0 tactics defaults (the world_view half) --
+# A felled tree drops a consumable + material (main.gd _on_neutral_died ->
+# spawn_loot), which is free income for EVERY kit whenever the floor is quiet.
+# Ordinary kits therefore get a small default living-tree value instead of 0.
+# Deliberately below the explicit tree kits (pacifist 5.0, tree-mechanic 6.0)
+# and below any live threat: it only bends a path that was already safe.
+# --arb-tree scales it; 0 restores "ordinary kits ignore trees" exactly.
+const DEFAULT_TREE_VALUE = 3.0
+# Hurt fruit is an OPPORTUNITY, not a tie-breaker. At missing HP one fruit is
+# worth up to FOOD_MAX * food_mult (30 at the 2.5 default) -- enough to shape a
+# fight (the w_dps tie is 14), still under a genuine 15-65 threat once the
+# pickup term's distance discount is applied. The cap MUST scale with the
+# multiplier: a flat FOOD_MAX cap is <= 12, which the old min(FOOD_MAX,
+# missing_hp) already saturates at 12+ missing HP, so the multiplier would be a
+# no-op exactly on the damage levels the player-reported bug is about.
+# --arb-food=1 reproduces the old value exactly; 0 restores the old unscaled
+# formula exactly (control arm).
+const FOOD_INJURED_MULT = 2.5
+# profile["kite_frac"] when the build carries a RANGED weapon: the share of
+# weapon range the arbiter's standoff term should hold. 0.0 for all-melee /
+# weaponless kits, so the kite term stays inert for them.
+const KITE_FRAC_RANGED = 0.75
 const METER_COOLDOWN_MIN = 12.0  # buccaneer: frames of cooldown that make a weapon
                                  # worth spending a pickup to reset
 const LOOT_VALUE = 4.0           # a fleeing loot alien, for characters that can catch one
@@ -608,7 +631,8 @@ var player_speed = 1.0           # sets how sticky every body is; a fast build
 # Per-frame resolved profile handed to the arbiter: already-plain numbers, so
 # the scorer never learns a character's name. Empty = pure baseline steering.
 # Keys the arbiter reads: anchor, anchor_radius, anchor_inner, caution,
-# engage, never_still.
+# engage, never_still, plus the v2.3.0 signals hp_ratio (always written) and
+# kite_frac (0.0 = no standoff wanted) written unconditionally in gather.
 var profile = {}
 var wave_time_left = 1e9         # seconds until the wave ends; 1e9 when unreadable
 
@@ -670,6 +694,8 @@ var center_mode_override = 0.0   # --arb-centermode=<radius>: perimeter row -> c
 var engage_hp_override = null    # --arb-engagehp: sweep a row's engage_hp band
 var caution_mult = 1.0           # --arb-caution: multiplier on the resolved row caution
 var leash_override = 0.0         # --arb-leash=<px>: override the builder turret leash radius
+var tree_mult = 1.0              # --arb-tree: DEFAULT_TREE_VALUE multiplier (0 = old)
+var food_mult = FOOD_INJURED_MULT  # --arb-food: hurt-fruit multiplier (0 = old)
 
 # Sweepable: --arb-blade=0 reverts to one inflated circle per stationary hitbox,
 # which is exactly how blades were priced before, so the comparison is exact.
@@ -832,6 +858,16 @@ func apply_overrides(d: Dictionary) -> void:
 	if d.has("caution"):
 		caution_mult = float(d["caution"])
 		print("WORLDVIEW caution_mult=%.2f" % caution_mult)
+	if d.has("tree"):
+		# v2.3.0: multiplier on the default living-tree value. 0 = old
+		# behaviour, where only characters with a tree mechanic felled trees.
+		tree_mult = float(d["tree"])
+		print("WORLDVIEW tree_mult=%.2f" % tree_mult)
+	if d.has("food"):
+		# v2.3.0: multiplier on a consumable's value while hurt. 0 = old
+		# unscaled value, so the control arm is exact rather than approximate.
+		food_mult = float(d["food"])
+		print("WORLDVIEW food_mult=%.2f" % food_mult)
 	if d.has("sweep"):
 		sweep_override = float(d["sweep"])
 		print("WORLDVIEW sweep_override=%.2f" % sweep_override)
@@ -1035,6 +1071,18 @@ func gather(main, player) -> void:
 
 	profile = {}
 	profile["pickup_radius"] = pickup_radius   # every row: the attract rim prices drops
+	# v2.3.0 contract: BOTH signals are written every frame, unconditionally --
+	# including on the --arb-charprofile=0 control arm and for rows whose
+	# resolver was skipped. The arbiter's own switches (--arb-kite=0,
+	# --arb-plan=0, --arb-adapt=0) decide whether they are used, so writing
+	# them cannot change control-arm steering.
+	#   hp_ratio  -- same value the damage_dive block below writes; hoisting it
+	#                here gives the kite / hit-adaptation terms a read on every
+	#                character, not just divers (old readers keep the same value).
+	#   kite_frac -- standoff share of weapon range: 0.75 with any ranged weapon,
+	#                0.0 for all-melee and weaponless kits (no standoff to keep).
+	profile["hp_ratio"] = current_hp / max_hp
+	profile["kite_frac"] = KITE_FRAC_RANGED if _has_ranged_weapon(player) else 0.0
 	if row.get("stand_income", false):
 		# The not-moving material tick, in the pickup unit (gold_value per
 		# material), and how far into the current second the stand is.
@@ -1205,6 +1253,19 @@ func _food_value(mode: String, fpos: Vector2, missing_hp: float, spawner) -> flo
 		# The ground is the safest inventory: fruit not yet eaten is healing that
 		# cannot be wasted. Step on it once the healing is real, not before.
 		return FOOD_BANK_FULL
+	# Hurt: a banked heal becomes an OPPORTUNITY, not a tie-breaker. The whole
+	# term scales with --arb-food (default 2.5), INCLUDING its cap:
+	#   food_mult * min(FOOD_MAX, missing_hp)   ->  30 at the default.
+	# Scaling only the value under a flat FOOD_MAX=12 cap is a no-op for real
+	# damage -- min(12, missing*2.5) equals the old min(12, missing) from 12 HP
+	# lost upward -- which is exactly the "hurt but won't eat fruit" case the
+	# player reported. The scaled cap stays a tie-breaker against real threats
+	# (a 15-65 threat still wins, especially after the pickup distance term).
+	# food_mult = 1 reproduces the old value exactly, so the flag is a clean
+	# A/B dial; food_mult = 0 falls through to the old unscaled formula (exact
+	# control arm).
+	if food_mult > 0.0:
+		return food_mult * min(FOOD_MAX, missing_hp)
 	return min(FOOD_MAX, missing_hp)
 
 
@@ -1862,6 +1923,20 @@ func _all_melee(player) -> bool:
 	return true
 
 
+# v2.3.0: positive form of _all_melee for the arbiter's standoff ("kite") term.
+# True when ANY equipped weapon is ranged -- one gun is enough to want distance,
+# which is the mirror rule of _weapon_range (ranged weapons set the reach).
+# False for an all-melee kit AND for an empty loadout: with nothing to shoot
+# there is no standoff worth keeping, so profile["kite_frac"] is 0.0.
+func _has_ranged_weapon(player) -> bool:
+	if not ("current_weapons" in player):
+		return false
+	for weapon in player.current_weapons:
+		if is_instance_valid(weapon) and weapon.current_stats is RangedWeaponStats:
+			return true
+	return false
+
+
 func _weapon_range(player) -> float:
 	var best = 1000.0
 	var has_ranged = false
@@ -2111,6 +2186,14 @@ func _infer_profile(player, spawner) -> Dictionary:
 		row["food"] = "none"
 	elif food_full:
 		row["food"] = "full_hp"
+	elif not row.has("food") and food_mult > 0.0:
+		# v2.3.0 default: BANK the heal. At full HP fruit is a mild cost (the
+		# ground is the safest inventory, and main.gd vacuums leftovers at the
+		# horn); once hurt it becomes a real opportunity (see _food_value).
+		# Pacifist's explicit "none" above, and the bomb/none/full_hp rows, all
+		# win. --arb-food=0 keeps the old default food mode "" (no key at all),
+		# so the control arm is byte-identical to the old inferred row.
+		row["food"] = "bank"
 
 	var tree_signal = _effect_enabled(Keys.one_shot_trees_hash, pi) \
 			or _effect_enabled(Keys.tree_turrets_hash, pi) \
@@ -2119,6 +2202,16 @@ func _infer_profile(player, spawner) -> Dictionary:
 	if tree_signal and not row.has("tree_value"):
 		row["tree_value"] = 6.0
 		row["gold"] = max(float(row.get("gold", 0.8)), 1.4)
+
+	# v2.3.0 default: every ordinary kit values a living tree a little. A felled
+	# tree drops a consumable + material, so it is free income whenever the
+	# floor is quiet; the arbiter's threat terms still outvote it in a fight.
+	# Explicit values above win (pacifist 5.0, tree-mechanic 6.0). Cryptid is
+	# excluded on purpose -- its tree policy is character-specific, not this
+	# generic default. --arb-tree=0 writes no key at all, so the inferred row is
+	# byte-identical to the old one (exact control arm).
+	if not row.has("tree_value") and not cryptid and tree_mult > 0.0:
+		row["tree_value"] = DEFAULT_TREE_VALUE * tree_mult
 
 	return row
 
