@@ -24,8 +24,9 @@
 ## 安装
 
 - **Steam Workshop（推荐）**：[订阅这里](https://steamcommunity.com/sharedfiles/filedetails/?id=3834096920)
-- **GitHub / 本地版**：从 [Releases](https://github.com/Shuumatsu/auto-brotato/releases) 下载 zip；
-  Steam 版需要放进已订阅的工坊 item 目录，步骤见 [安装文档](docs/TECHNICAL.md)。
+- **GitHub / 本地版**：从 [Releases](https://github.com/Shuumatsu/auto-brotato/releases) 下载**单个 zip**；
+  它已经包含 Mod 本体 + 预览图 + Workshop 描述，Steam 版放进已订阅的工坊 item 目录即可，
+  步骤见 [安装文档](docs/TECHNICAL.md)。
 
 ## 操作
 
@@ -38,7 +39,8 @@
 ## 开发 / 发布
 
 ```bash
-./build.sh                 # 构建 dist/AutoBattler-<version>-fork.zip
+./build.sh          # 开发用 Mod zip: dist/AutoBattler-<version>-fork.zip
+./build_release.sh  # 发布用单文件整包: dist/AutoBattler-v<version>.zip
 ```
 
 - 自动 benchmark / 参数标定：[calibration/README.md](calibration/README.md)

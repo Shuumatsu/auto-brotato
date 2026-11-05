@@ -292,16 +292,17 @@ auto-brotato/
 - **build.yml**：push / PR 时构建 zip，校验 zip 结构、manifest 版本与 `build.sh` 一致，上传 artifact。
 - **release.yml**：push tag（`v2.2.2` 这种格式）或在 Actions 页面手动 `Run workflow` 时：
   - 构建并校验版本
-  - 生成 Workshop 友好文件名 `AutoBattler - Movement Autopilot v<version>.zip`
-  - 创建 GitHub Release，附带 zip、预览图、描述、SHA256SUMS
+  - 生成**单个发布整包** `AutoBattler-v<version>.zip`（内含 Mod 本体 + `preview.png` + `description.txt` + README/LICENSE/INSTALL）
+  - 创建 GitHub Release，**只挂这一个附件**；SHA256 写在 release notes 里
 
 **CI 不能直接上传 Steam Workshop**：Workshop 上传使用 Steamworks 客户端 UGC API，
 需要一台已登录 Steam 的机器；GitHub 托管 runner 没有 Steam 客户端，`steamcmd` 也不支持
 发布 Workshop 物品。因此发布流程是：
 
-1. CI 出 GitHub Release（可下载 zip）
-2. 在 Windows（Steam 已登录）运行 `GodotWorkshopUtility.exe`：选 zip、填 Workshop ID
-   `3834096920`、Upload；再去网页补 `description.txt`
+1. CI 出 GitHub Release（只有**一个**整包 zip）
+2. 在 Windows（Steam 已登录）运行 `GodotWorkshopUtility.exe`：选该 zip、填 Workshop ID
+   `3834096920`、Upload（预览图从 zip 内解压 `preview.png` 选择）；再把 zip 内的
+   `description.txt` 贴到网页描述
 
 如果以后想全自动同步 Workshop，需要 self-hosted Windows runner + GUI 自动化，脆弱且不建议；
 更稳的是每次 release 后手动 2 分钟上传。

@@ -44,37 +44,71 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Resolved version=$VERSION tag=$TAG"
 
-      - name: Build
-        run: bash build.sh
+      - name: Build single release bundle
+        run: bash build_release.sh
 
-      - name: Verify manifest version
-        run: |
-          python3 - <<'PY'
-          import glob, json, zipfile, os
-
-          expected = os.environ["VERSION"]
-          zips = sorted(glob.glob("dist/AutoBattler-*-fork.zip"))
-          assert zips, "no zip produced"
-          with zipfile.ZipFile(zips[-1]) as z:
-              manifest = json.loads(
-                  z.read("mods-unpacked/Pasha-AutoBattler/manifest.json"))
-          actual = manifest["version_number"]
-          assert actual == expected, f"manifest version {actual} != release {expected}"
-          print(f"OK version={actual}")
-          PY
+      - name: Verify bundle (one zip = mod + preview + description + docs)
         env:
           VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, zipfile
 
-      - name: Stage Workshop-friendly zip and checksums
+          expected = os.environ["VERSION"]
+          bundles = sorted(glob.glob("dist/AutoBattler-v*.zip"))
+          assert bundles, "build_release.sh produced no bundle"
+          path = bundles[-1]
+          with zipfile.ZipFile(path) as z:
+              names = z.namelist()
+              manifest = json.loads(
+                  z.read("mods-unpacked/Pasha-AutoBattler/manifest.json"))
+              assert manifest["version_number"] == expected, \
+                  f"manifest {manifest['version_number']} != release {expected}"
+              for required in [
+                  "preview.png",
+                  "description.txt",
+                  "README.md",
+                  "INSTALL.txt",
+                  "LICENSE-BOTato-MIT.txt",
+              ]:
+                  assert required in names, f"missing {required}"
+              for suffix in [
+                  "/player_movement_behavior.gd",
+                  "/steering/arbiter.gd",
+                  "/steering/world_view.gd",
+              ]:
+                  assert any(n.endswith(suffix) for n in names), f"missing {suffix}"
+              print(f"OK {path}: version={expected}, files={len(names)}")
+          PY
+
+      - name: Generate release notes
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          cp "dist/AutoBattler-${VERSION}-fork.zip" \
-             "workshop/AutoBattler - Movement Autopilot v${VERSION}.zip"
-          (cd dist && shasum -a 256 *.zip) > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-          ls -la "workshop/AutoBattler - Movement Autopilot v${VERSION}.zip"
+          SHA="$(sha256sum "dist/AutoBattler-v${VERSION}.zip" | awk '{print $1}')"
+          cat > RELEASE_NOTES.md <<EOF
+          **AutoBattler ${VERSION}** — Brotato movement autopilot. One file, everything included.
+
+          **This single zip contains**
+          - \`mods-unpacked/\` — the ModLoader mod (local install + Workshop content)
+          - \`preview.png\` — Workshop preview image
+          - \`description.txt\` — Workshop description (BBCode)
+          - \`README.md\`, \`README-FORK.md\`, \`INSTALL.txt\`, MIT license
+
+          **Local install (Steam)**
+          Put the zip into any subscribed Workshop item folder \\
+          (\`steamapps/workshop/content/1942280/<item>/\`), then start Brotato through Steam.
+
+          **Steam Workshop update**
+          1. Download this zip.
+          2. Run \`GodotWorkshopUtility\` from the Brotato folder, select this zip,
+             Workshop ID \`3834096920\`.
+          3. When the tool asks for a preview image, extract \`preview.png\` from the zip and select it.
+          4. After upload, paste \`description.txt\` (also inside the zip) into the Workshop description.
+
+          SHA256: \`${SHA}\`
+          EOF
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -82,30 +116,8 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: AutoBattler ${{ steps.ver.outputs.version }}
           target_commitish: ${{ github.sha }}
+          body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
-          body: |
-            AutoBattler ${{ steps.ver.outputs.version }} — Brotato movement autopilot (decisions stay manual).
-
-            **Install locally / on another machine**
-            1. Download `AutoBattler-${{ steps.ver.outputs.version }}-fork.zip`.
-            2. Place it in a subscribed Workshop item folder:
-               `steamapps/workshop/content/1942280/<item>/` (or use `install.sh --item <id>`).
-
-            **Update the Steam Workshop item**
-            1. Download `AutoBattler - Movement Autopilot v${{ steps.ver.outputs.version }}.zip`.
-               GitHub may replace spaces with dots in the asset filename; rename it back
-               (the uploader uses the zip filename as the Workshop item title).
-            2. On a machine with Steam running/logged in (Windows recommended for this project),
-               open `GodotWorkshopUtility.exe` from the Brotato install folder.
-            3. Select the zip, set Workshop ID `3834096920`, click Upload, then paste
-               `description.txt` into the Workshop description.
-
-            GitHub-hosted CI cannot upload to Steam Workshop: Workshop uploads use the
-            Steamworks client UGC API and require a logged-in Steam client.
           files: |
-            dist/*.zip
-            workshop/AutoBattler - Movement Autopilot v*.zip
-            workshop/preview.png
-            workshop/description.txt
-            SHA256SUMS.txt
+            dist/AutoBattler-v*.zip
           draft: false
