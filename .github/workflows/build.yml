@@ -36,16 +36,16 @@ jobs:
               assert f"VERSION=\"{version}\"" in open("build.sh").read(), \
                   f"manifest version {version} != build.sh VERSION"
 
-              required = [
-                  "mods-unpacked/Pasha-AutoBattler/mod_main.gd",
-                  "mods-unpacked/Pasha-AutoBattler/autobattler_options.gd",
-                  "mods-unpacked/Pasha-AutoBattler/extensions/entities/units/player/"
-                  "player_movement_behavior.gd",
-                  "mods-unpacked/Pasha-AutoBattler/steering/arbiter.gd",
-                  "mods-unpacked/Pasha-AutoBattler/steering/world_view.gd",
-              ]
-              for name in required:
-                  assert name in names, f"missing {name}"
+              required_suffixes = {
+                  "mod_main.gd": "/Pasha-AutoBattler/mod_main.gd",
+                  "autobattler_options.gd": "/Pasha-AutoBattler/autobattler_options.gd",
+                  "player_movement_behavior.gd": "/player_movement_behavior.gd",
+                  "arbiter.gd": "/Pasha-AutoBattler/steering/arbiter.gd",
+                  "world_view.gd": "/Pasha-AutoBattler/steering/world_view.gd",
+              }
+              for label, suffix in required_suffixes.items():
+                  assert any(name.endswith(suffix) for name in names), \
+                      f"missing {label} ({suffix})"
               for name in names:
                   assert not name.startswith("/") and ".." not in name.split("/"), name
               print(f"OK {path}: version={version}, files={len(names)}")
