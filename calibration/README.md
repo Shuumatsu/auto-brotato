@@ -210,3 +210,25 @@ python3 calibration/run_pilot.py --repeats 2 \
    两个场景互相覆盖逐秒日志；CSV 增加 `start_wave` / `speed` 列。
 4. 注入目标是别人的工坊 item：`cleanup_test_mods()` 现在也会删掉注入进去的 `AutoBattler-*.zip`，
    恢复时把原 item 内容放回。
+
+## v2.5.0 规划层 A/B（真机，待跑）
+
+设计/根因：`_research/planning-v250-design.md`；离线门禁：`_research/planning-v250/gate/`；
+真机 runbook：`_research/planning-v250/bench.md`。
+
+- 候选：`calibration/candidates_v250.json`（control = 5 个新开关全 0 = v2.4.0 精确行为；
+  planning = 出厂默认；可选 no_breakout/no_goal 归因臂）。
+- 场景：`calibration/scenarios_v250.json`（D6 wave6 压力组 + D3 wave7 evolution_mult=20 物品组）。
+- 命令：
+  ```bash
+  python3 calibration/run_pilot.py --repeats 3 \
+    --build dist/AutoBattler-2.5.0-fork.zip \
+    --scenarios calibration/scenarios_v250.json \
+    --candidates calibration/candidates_v250.json \
+    --out calibration/results_v250.csv
+  python3 _research/planning-v250/summarize_v250.py \
+    --glob 'calibration/logs/*_v250*.log' --csv-out _research/planning-v250/results_v250.csv
+  ```
+- 指标：压力组看存活/清波/min_hp + harness 新遥测 `breakouts=`（0 说明功能没触发，不代表没收益）；
+  物品组看 `evo_picked` / `goals=` / `goal_d=`。小样本（2 臂 × 4 场景 × 3 repeats = 24 局，
+  约 15–18 分钟）只作方向性判断。

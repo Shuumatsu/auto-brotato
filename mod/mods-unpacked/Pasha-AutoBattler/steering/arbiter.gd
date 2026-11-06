@@ -386,6 +386,93 @@ const PLAN_DEDUPE_BINS = 1.05    # angular de-duplication for the beam: headings
                                  # are the same first move twice, so the beam stays
                                  # angularly spread instead of clustering
 
+# -- v2.5.0: pre-emptive breakout (escape a closing ring BEFORE it closes) --
+# Field report: "you can see with the naked eye that it is about to be
+# surrounded, but the bot does not plan ahead." The 2-ply planner did not fix
+# it, and the arithmetic says why: from the middle of a ring every heading
+# ends near a body at the 0.8 s horizon, so the first-ply score is nearly flat
+# and the second ply is only a discounted tie-breaker. The escape a human
+# takes requires RUNNING AT a body on purpose (taking the soft contact price
+# now) to be outside the ring 1-2 s later. That is not a weight: it is a
+# different objective (future freedom, not current clearance), and the
+# codebase's own history says such states need a MODE.
+#
+# Trigger: the LARGEST ANGULAR GAP the ring leaves now is passable, but
+# projected ahead (pursuers walk toward us, bodies widen as the ring shrinks)
+# that gap will be gone. Then commit to the heading whose pursuit rollout
+# keeps the most clearance over BREAKOUT_ROLLOUT_T and stop pricing contact
+# bodies at face value for the duration -- bullets, dashes and telegraphs
+# stay full price, so this is "run through the crowd", not "tank".
+# --arb-breakout=0 is the exact 2.4.0 control arm (mode never arms).
+const BREAKOUT_ENABLE = 1.0      # --arb-breakout
+const BREAKOUT_RING = 620.0      # px: contact bodies inside this ring can cage us
+const BREAKOUT_FORECAST = 1.8    # s: closure forecast horizon (one long ply)
+const BREAKOUT_MIN_GAP = 0.15    # rad: the largest gap must be at least this wide NOW
+const BREAKOUT_FUT_GAP = 0.02    # rad: ...and projected to be gone at FORECAST
+const BREAKOUT_MIN_CONTACT = 6   # fewer pursuers cannot close a ring around us
+const BREAKOUT_MAX_TICKS = 180   # hard cap on one escape (~3 s at 60 Hz)
+const BREAKOUT_CLEAR = 260.0     # px: nearest body at which the escape is DONE
+                                 # (leaving the mode at 50 px just re-centres the bot
+                                 # in the pack -- the local cost's equilibrium)
+const BREAKOUT_TICKS = 90        # per-commitment frames before a re-plan (unused cap
+                                 # kept for compatibility)
+const BREAKOUT_RECHECK = 15      # frames between escape-heading re-plans
+const BREAKOUT_COOLDOWN = 45     # frames after a breakout before it can re-arm
+const BREAKOUT_CONTACT = 0.35    # contact/dash weight share while breaking out
+const BREAKOUT_ROOM = 0.5        # room weight share: the crowd is the point now
+const BREAKOUT_PULL = 60.0       # HP-units reward for heading with the escape line
+const BREAKOUT_DIRS = 16         # rollout headings
+const BREAKOUT_ROLLOUT_T = 1.6   # s of pursuit rollout per heading
+const BREAKOUT_ROLLOUT_HZ = 30   # rollout integration rate
+const BREAKOUT_PASS = -28.0      # px: worst clearance below this = no passable line
+                                 # (~one body radius): a breakout MAY buy the
+                                 # escape with a hit -- that is what the mode is for
+const BREAKOUT_BODY = 18.0       # px: player body radius used by the rollout
+
+# -- v2.5.0: committed item goal (plan a detour, don't just drift) --
+# Rewards currently enter _cost as a per-step gradient with a 320 px falloff,
+# capped by the item's own value (6-9 HP for a DLC evolution item). A single
+# contact body costs 10-40, so any item 1+ seconds away is invisible: the bot
+# only ever collects loot it happens to pass. This is the committed-goal
+# layer: when the neighbourhood is calm, pick the best reward by
+# value/(1+ETA/GOAL_FALLOFF), then pay a pull for closing the distance
+# EVERY frame until it is collected, the item disappears, danger closes in,
+# or the commit expires. Value 0 disables; --arb-goal=0 is the control arm.
+# The pull is deliberately a separate term, not a higher pickup weight: the
+# normal reward gradient must stay comparable across candidates, and an item
+# that walks us into a live lane must still lose to the threat terms.
+const GOAL_ENABLE = 1.0          # --arb-goal
+const W_GOAL = 9.0               # --arb-goalw: pull weight in HP units at value 9
+const GOAL_MIN_VALUE = 4.0       # don't plan detours for cheaper pickups
+const GOAL_RANGE = 1000.0        # px: never plan for an item beyond this
+const GOAL_FALLOFF = 420.0       # px: ETA denominator in the acquisition utility
+const GOAL_SAFE_R = 320.0        # px: acquire only when no threat is nearer
+const GOAL_ABORT_R = 170.0       # px: drop the goal when something gets this near
+const GOAL_DONE_R = 12.0         # px: counted as arrived (pickup AREA reach ~42;
+                                 # releasing at the 45 rim left the bot parked
+                                 # just outside the real pickup circle)
+const GOAL_COMMIT = 60           # frames a goal survives before re-acquisition
+const GOAL_COOLDOWN = 30         # frames after a drop before re-acquiring
+
+# -- v2.5.0: walk-on reward semantics --
+# v2.4 passed evolution consumables as [pos, value, false, EVO_WALK_RIM] and
+# the cost code's `held = r.size() > 3 and r[3] > 0` read that as a HELD
+# reward (revive-zone semantics: paid every frame inside the rim). The bot
+# then parks on the rim and never consumes the item -- offline closed-loop
+# sim showed exactly that. A walk-on item is a ONE-SHOT pickup: pay the
+# gradient and the taken bonus, then the reward disappears when the game
+# removes the consumable. world_view marks these with r[4] = 1.0;
+# --arb-walk=0 ignores the marker and restores the 2.4.0 held reading.
+const WALK_ENABLE = 1.0          # --arb-walk
+
+# -- v2.5.0: pursuit-aware second ply --
+# _advance_threats used constant velocity, but contact bodies STEER at the
+# potato: a ring projected in a straight line keeps its gaps open while the
+# real ring turns and closes them. For the second ply, contact/dash threats
+# are advanced toward the first-ply end position instead (pursuit), capped at
+# touching distance. --arb-pursuit=0 is the exact constant-velocity control.
+const PURSUIT_ENABLE = 1.0       # --arb-pursuit
+
 # -- v2.3.0: hit-adaptive alert --
 # A build that just took a big hit should behave more cautiously for a moment.
 # Online, cheap, and trivially switchable: compare hp_ratio with the previous
@@ -501,6 +588,38 @@ var plan_max_threats = PLAN_MAX_THREATS  # --arb-planthreats
 var adapt_enable = 1.0           # --arb-adapt
 var adapt_gain = ADAPT_GAIN      # --arb-adaptgain
 var adapt_secs = ADAPT_SECS      # --arb-adaptsecs
+
+# v2.5.0 switches (see the v2.5 constant blocks above). Defaults are the new
+# behaviour; every one has an exact 2.4.0 control arm (=0).
+var breakout_enable = BREAKOUT_ENABLE   # --arb-breakout
+var goal_enable = GOAL_ENABLE           # --arb-goal
+var w_goal = W_GOAL                     # --arb-goalw
+var walk_enable = WALK_ENABLE           # --arb-walk: honor r[4] walk-on marker
+var pursuit_enable = PURSUIT_ENABLE     # --arb-pursuit: steering second ply
+# v2.5.0 per-decision state (breakout + item goal). Read by _cost.
+var _breakout_active = false
+var _breakout_dir = Vector2.ZERO
+var _breakout_engaged = false
+var _breakout_ticks = 0
+var _breakout_cooldown = 0
+var _breakout_recheck = 0
+var _breakout_free_now = 1.0
+var _breakout_free_fut = 1.0
+var _goal_on = false
+var _goal_pos = Vector2.ZERO
+var _goal_value = 0.0
+var _goal_frac = 0.0
+var _goal_ticks = 0
+var _goal_cooldown = 0
+# telemetry mirrors for the movement behaviour / BOTLOG
+var last_breakout = false
+var last_breakout_engaged = false
+var last_breakout_free_now = 1.0
+var last_breakout_free_fut = 1.0
+var last_breakout_evals = 0
+var last_goal = false
+var last_goal_dist = -1.0
+var last_goal_value = 0.0
 
 var pin_enable = 0.0             # --arb-pin=1 turns the escape mode on; default OFF
 var pin_threat = PIN_THREAT      # --arb-pinthreat
@@ -709,6 +828,12 @@ func apply_overrides(d: Dictionary) -> void:
 	if d.has("adapt"): adapt_enable = float(d["adapt"])
 	if d.has("adaptgain"): adapt_gain = float(d["adaptgain"])
 	if d.has("adaptsecs"): adapt_secs = max(float(d["adaptsecs"]), 0.0)
+	# v2.5.0 switches: every one of these at 0 is the exact 2.4.0 control arm.
+	if d.has("breakout"): breakout_enable = float(d["breakout"])
+	if d.has("goal"): goal_enable = float(d["goal"])
+	if d.has("goalw"): w_goal = float(d["goalw"])
+	if d.has("walk"): walk_enable = float(d["walk"])
+	if d.has("pursuit"): pursuit_enable = float(d["pursuit"])
 	if not d.empty():
 		print("ARBITER weights: proj=%.2f contact=%.2f dash=%.2f aoe=%.2f latent=%.2f room=%.2f roomcap=%.0f wall=%.2f enclose=%.2f dps=%.2f pickup=%.2f hyst=%.2f lethality=%.2f horizon=%.2f pin=%.2f pinthreat=%.2f predict=%.2f predsecs=%.2f tangent=%.2f swerve=%.2f anchor=%.2f" % [
 			w_proj, w_contact, w_dash, w_aoe, w_latent, w_room, room_cap, w_wall,
@@ -717,6 +842,8 @@ func apply_overrides(d: Dictionary) -> void:
 		print("ARBITER v2.3.0: kite=%.2f kitehp=%.2f plan=%d beam=%d gamma=%.2f planthreats=%d adapt=%.2f adaptgain=%.2f adaptsecs=%.2f" % [
 			w_kite, kite_hp_growth, plan_depth, plan_beam, plan_gamma,
 			plan_max_threats, adapt_enable, adapt_gain, adapt_secs])
+		print("ARBITER v2.5.0: breakout=%.2f goal=%.2f goalw=%.2f walk=%.2f pursuit=%.2f" % [
+			breakout_enable, goal_enable, w_goal, walk_enable, pursuit_enable])
 
 
 # Returns the chosen unit direction, or ZERO to stand still.
@@ -821,6 +948,25 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 		last_adapt = _adapt_ticks > 0
 	_prev_hp_ratio = _hp_ratio
 
+	# -- v2.5.0: pre-emptive breakout + committed item goal (see the blocks) --
+	# Both are MODES resolved once per decision from the raw threat/reward set,
+	# BEFORE the weights are baked into _p_coef down in _prepare(). Their cost
+	# terms are read back in _cost. --arb-breakout=0 / --arb-goal=0 leave the
+	# state false and the terms skipped, which is the exact 2.4.0 control arm.
+	_breakout_active = false
+	if breakout_enable != 0.0:
+		_breakout_active = _update_breakout(p0, speed, far, threats)
+	last_breakout = _breakout_active
+	last_breakout_engaged = _breakout_engaged
+	last_breakout_free_now = _breakout_free_now
+	last_breakout_free_fut = _breakout_free_fut
+	_goal_on = false
+	if goal_enable != 0.0 and not escaping and not _breakout_active:
+		_goal_on = _update_goal(p0, threats, rewards)
+	last_goal = _goal_on
+	last_goal_dist = p0.distance_to(_goal_pos) if _goal_on else -1.0
+	last_goal_value = _goal_value if _goal_on else 0.0
+
 	# Scaled BEFORE _prepare, deliberately: the per-kind weight is baked into
 	# _p_coef in there (see the kw assignment), so discounting these afterwards
 	# would compile cleanly, change nothing, and hand back a convincing null.
@@ -837,10 +983,17 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 	var adapt_scale = 1.0
 	if _adapt_ticks > 0:
 		adapt_scale = 1.0 + adapt_gain
-	var scaled = escaping or caution != 1.0 or dps_scale != 1.0 or adapt_scale != 1.0
+	var scaled = escaping or _breakout_active or caution != 1.0 or dps_scale != 1.0 or adapt_scale != 1.0
 	var saved = []
 	if scaled:
 		saved = [w_proj, w_contact, w_dash, w_aoe, w_latent, w_dps, w_room, w_wall]
+	if _breakout_active:
+		# Run THROUGH the bodies, not around them: the crowd is what the mode
+		# is escaping, so its contact price is what the commitment buys down.
+		# Projectiles, dashes and telegraphs keep full price -- breaking out
+		# must never mean tanking a bullet lane.
+		w_contact *= BREAKOUT_CONTACT
+		w_room *= BREAKOUT_ROOM
 	if caution != 1.0:
 		w_proj *= caution
 		w_contact *= caution
@@ -891,6 +1044,32 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 			best_cost = c
 			best_i = i
 
+	# -- v2.5.0: close-in candidate for the committed goal -------------------
+	# The action space is full-speed headings plus stand. A walk-on item that
+	# is INSIDE one horizon step (speed x 0.8 s ~= 250 px) is then unreachable
+	# in score terms: every full-speed heading OVERSHOOTS it, stand earns
+	# nothing, so stand is the least-bad candidate and the bot parks about half
+	# a step away forever -- offline closed-loop sim reproduced exactly this
+	# (it stops 117 px from a 45 px-rim item and never consumes it). One extra
+	# candidate at the exact speed that ends ON the goal teaches the scorer
+	# that partial steps exist. Execution is still full speed for the frame and
+	# re-decided next frame, so this is a scoring-window correction, not a
+	# movement hack; threat prices for this candidate use the slower speed,
+	# which is the CONSERVATIVE direction.
+	if _goal_on:
+		var gv = _goal_pos - p0
+		var gd = gv.length()
+		if gd > 1.0 and gd < speed * horizon:
+			var gdir = gv / gd
+			var gspeed = clamp(gd / horizon, speed * 0.15, speed)
+			var gc = _cost(gdir, p0, gspeed, body_radius, far, rewards, targets,
+					chargers, weapon_range, prefers_still, current_hp)
+			cands.push_back(gdir)
+			scores.push_back(gc)
+			if gc < best_cost:
+				best_cost = gc
+				best_i = cands.size() - 1
+
 	# -- v2.3.0: 2-ply receding-horizon plan (see the PLAN_* block) --
 	# The primary sweep is single-step greedy. Give the best K distinct FIRST
 	# headings one extra ply on the same cost function: advance the threat set
@@ -931,10 +1110,19 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 				var p1 = p0 + d1 * speed * horizon
 				p1.x = clamp(p1.x, body_radius, far.x - body_radius)
 				p1.y = clamp(p1.y, body_radius, far.y - body_radius)
+				# v2.5.0: with pursuit on, the world at the next decision point
+				# is rebuilt per branch with pursuers aimed at WHERE THIS MOVE
+				# ENDS. The 2.4.0 constant-velocity projection kept a ring's gaps
+				# open in a straight line while the real chasers turn and close
+				# them; that is the forecast the escape needs to be honest.
+				var threats_here = plan_threats
+				if pursuit_enable != 0.0:
+					threats_here = _advance_threats(threats, horizon, p1)
+					last_plan_evals += threats.size()
 				# The next decision's hysteresis sees the first move as the
 				# previous heading, exactly as the real next frame will.
 				last_dir = d1
-				_prepare(p1, speed, body_radius, plan_threats, current_hp, mitigation)
+				_prepare(p1, speed, body_radius, threats_here, current_hp, mitigation)
 				var c2 = 1e18
 				for k2 in range(PLAN_DIRS):
 					var a2 = k2 * TAU / PLAN_DIRS
@@ -1249,14 +1437,32 @@ func _prepare(p0: Vector2, speed: float, body_radius: float, threats: Array,
 # walk, but this ply is a tie-breaker for OUR first move, not an enemy model --
 # extrapolating them would double-count a prediction the first ply already
 # prices as a threat. The cost is one small array per live threat per frame.
-func _advance_threats(ts: Array, dt: float) -> Array:
+#
+# v2.5.0: `target` (optional) switches CONTACT/DASH bodies from constant
+# velocity to PURSUIT -- they walk toward `target`, capped at touching
+# distance. The potato's own motion is what makes a straight-line projection
+# lie: a chaser 300 px beside the projected path turns and closes the gap the
+# old model kept open, which is exactly the ring-closure the escape planner
+# must forecast. Called with no target (the 2.4.0 call shape) the function is
+# bit-for-bit the old one, which is also the --arb-pursuit=0 control arm.
+func _advance_threats(ts: Array, dt: float, target = null) -> Array:
+	var pursuit = target != null and pursuit_enable != 0.0
 	var out = []
 	for t in ts:
 		var start = float(t[T_START])
 		var end = float(t[T_END]) - dt
 		if end <= 0.0:
 			continue
-		var advanced = [t[T_POS] + t[T_VEL] * max(dt - start, 0.0),
+		var pos = t[T_POS] + t[T_VEL] * max(dt - start, 0.0)
+		if pursuit and (t[T_KIND] == KIND_CONTACT or t[T_KIND] == KIND_DASH):
+			var here = t[T_POS]
+			var dist = here.distance_to(target)
+			if dist > 0.001:
+				var step = t[T_VEL].length() * max(dt - start, 0.0)
+				var stop = float(t[T_RADIUS]) + BODY_RADIUS_FALLBACK
+				var travel = min(step, max(dist - stop, 0.0))
+				pos = here + (target - here) / dist * travel
+		var advanced = [pos,
 				t[T_VEL], t[T_RADIUS], t[T_DAMAGE], t[T_KIND],
 				max(start - dt, 0.0), t[T_TICKS], end]
 		if t.size() > T_KILL:
@@ -1275,6 +1481,302 @@ func _advance_chargers(cs: Array, dt: float) -> Array:
 		out.push_back([c[C_POS], c[C_RANGE], c[C_DAMAGE],
 				max(float(c[C_READY]) - dt, 0.0)])
 	return out
+
+
+# -- v2.5.0 helper: the escape/planning layer ------------------------------
+# Everything below is read by choose()/ _cost only when the corresponding
+# --arb-* switch is on, so the 2.4.0 control arm never executes it.
+
+const BREAKOUT_BINS = 120        # 3-degree sectors for the gap measure
+
+# Largest angular gap in the ring of CONTACT bodies around us, at t =
+# forecast_t (0 = now). Bodies are projected as PURSUERS: they walk toward us
+# and stop at touching distance (a body at zero distance has no bearing, so
+# it cannot be used for a gap measure -- the cap keeps its bearing intact).
+# Each body blocks an arc of half-width atan2(radius + our body, distance):
+# the closer the ring, the wider every body blocks, so a ring that still has
+# gaps NOW can already read as closed at FORECAST -- which is exactly the
+# "I can see it will be surrounded" the player asked for. Cheapest robust
+# implementation: 3-degree occupancy bins plus the longest free run on the
+# circle (no sorting, wraps correctly).
+func _ring_largest_gap(p0: Vector2, threats: Array, forecast_t: float) -> float:
+	var bins = []
+	bins.resize(BREAKOUT_BINS)
+	for i in range(BREAKOUT_BINS):
+		bins[i] = false
+	var blocked_any = false
+	for t in threats:
+		var k = t[T_KIND]
+		if k != KIND_CONTACT and k != KIND_DASH:
+			continue
+		var pos = t[T_POS]
+		var dist = pos.distance_to(p0)
+		if dist > BREAKOUT_RING and forecast_t <= 0.0:
+			continue
+		if forecast_t > 0.0:
+			var stop = float(t[T_RADIUS]) + BREAKOUT_BODY
+			if dist > 0.001:
+				var travel = min(t[T_VEL].length() * forecast_t, max(dist - stop, 0.0))
+				pos = pos + (p0 - pos) / dist * travel
+				dist = pos.distance_to(p0)
+		if dist > BREAKOUT_RING:
+			continue
+		var half = atan2(float(t[T_RADIUS]) + BREAKOUT_BODY, max(dist, 1.0))
+		var mid = (pos - p0).angle()
+		var i0 = int(floor((mid - half + PI) / TAU * float(BREAKOUT_BINS)))
+		var i1 = int(floor((mid + half + PI) / TAU * float(BREAKOUT_BINS)))
+		# intervals are short (< PI/2); a wrapped linear walk is exact
+		for j in range(i1 - i0 + 1):
+			var idx = (i0 + j) % BREAKOUT_BINS
+			if idx < 0:
+				idx += BREAKOUT_BINS
+			bins[idx] = true
+			blocked_any = true
+	if not blocked_any:
+		return TAU
+	var best = 0
+	var run = 0
+	for i in range(BREAKOUT_BINS * 2):
+		if not bins[i % BREAKOUT_BINS]:
+			run += 1
+			if run > best:
+				best = run
+		else:
+			run = 0
+	best = min(best, BREAKOUT_BINS)
+	return float(best) / float(BREAKOUT_BINS) * TAU
+
+
+func _count_contact(p0: Vector2, threats: Array, radius: float) -> int:
+	var n = 0
+	var r_sq = radius * radius
+	for t in threats:
+		var k = t[T_KIND]
+		if k != KIND_CONTACT and k != KIND_DASH:
+			continue
+		if t[T_POS].distance_squared_to(p0) <= r_sq:
+			n += 1
+	return n
+
+
+# Closest real BODY (contact/dash) distance; bullets are excluded on purpose:
+# a permanent bullet stream must not veto every item goal, and bullets are
+# already priced per candidate by the normal threat terms.
+func _nearest_body_dist(p0: Vector2, threats: Array) -> float:
+	var best = 1e18
+	for t in threats:
+		var k = t[T_KIND]
+		if k != KIND_CONTACT and k != KIND_DASH:
+			continue
+		var d = t[T_POS].distance_to(p0)
+		if d < best:
+			best = d
+	return best
+
+
+# Best EVASION LINE out of a closing ring: integrate 16 headings for
+# BREAKOUT_ROLLOUT_T against the same pursuit model, score by the WORST
+# clearance over the whole line (walls included). This is the piece the local
+# cost cannot express -- a line that gives up 20 px of clearance at t=0.3 s
+# to be outside the ring at t=1.5 s is worth it, and only a rollout sees
+# that. Lines whose worst clearance is below BREAKOUT_PASS are rejected; if
+# none survives, the ring is already closed and the mode refuses to arm
+# (better the normal dodge than a magical "run through").
+func _rollout_escape_dir(p0: Vector2, speed: float, far: Vector2,
+		threats: Array) -> Vector2:
+	var bodies = []
+	for t in threats:
+		var k = t[T_KIND]
+		if k != KIND_CONTACT and k != KIND_DASH:
+			continue
+		if float(t[T_START]) > BREAKOUT_ROLLOUT_T:
+			continue
+		var d = t[T_POS].distance_to(p0)
+		if d > BREAKOUT_RING * 1.5:
+			continue
+		bodies.push_back([t[T_POS], t[T_VEL].length(), float(t[T_RADIUS]), d])
+	if bodies.empty():
+		return Vector2.ZERO
+	# Cap the rollout at the nearest bodies; a full-screen swarm does not make
+	# the line any different (the nearest ring is what is in the way) and the
+	# integration cost is linear in this count. Selection of the 24 nearest by
+	# repeated min -- tiny counts, no sort dependency.
+	if bodies.size() > 24:
+		var pool = bodies.duplicate()
+		var near = []
+		for _pick in range(24):
+			var bi = 0
+			for i in range(1, pool.size()):
+				if float(pool[i][3]) < float(pool[bi][3]):
+					bi = i
+			near.push_back(pool[bi])
+			pool.remove(bi)
+		bodies = near
+	var steps = int(round(BREAKOUT_ROLLOUT_T * BREAKOUT_ROLLOUT_HZ))
+	var best_score = -1e18
+	var best_worst = -1e18
+	var best = Vector2.ZERO
+	for k in range(BREAKOUT_DIRS):
+		var a = float(k) * TAU / float(BREAKOUT_DIRS)
+		var d = Vector2(cos(a), sin(a))
+		var p2 = p0
+		var pos2 = []
+		for b in bodies:
+			pos2.push_back(b[0])
+		var worst = 1e9
+		var final_clear = 1e9
+		for _s in range(steps):
+			p2 += d * speed / float(BREAKOUT_ROLLOUT_HZ)
+			p2.x = clamp(p2.x, BREAKOUT_BODY, far.x - BREAKOUT_BODY)
+			p2.y = clamp(p2.y, BREAKOUT_BODY, far.y - BREAKOUT_BODY)
+			var frame_clear = min(min(p2.x - BREAKOUT_BODY, far.x - BREAKOUT_BODY - p2.x),
+					min(p2.y - BREAKOUT_BODY, far.y - BREAKOUT_BODY - p2.y))
+			for i in range(bodies.size()):
+				var to = p2 - pos2[i]
+				var dist = to.length()
+				var stop = float(bodies[i][2]) + BREAKOUT_BODY
+				if dist > stop:
+					pos2[i] += to / dist * float(bodies[i][1]) / float(BREAKOUT_ROLLOUT_HZ)
+				frame_clear = min(frame_clear, p2.distance_to(pos2[i]) - stop)
+			worst = min(worst, frame_clear)
+			final_clear = frame_clear
+		# Worst clearance alone picks the ORBIT, not the exit: skirting the ring
+		# at 80 px never touches anybody, while the line that actually leaves
+		# has to squeeze past bodies for a moment. The terminal clearance is
+		# what distinguishes "still inside the cage" from "outside it", so the
+		# score pays for it -- this is the whole lesson of the closed-loop sim.
+		var score = worst + 0.6 * final_clear
+		if score > best_score:
+			best_score = score
+			best_worst = worst
+			best = d
+	if best_worst < BREAKOUT_PASS:
+		return Vector2.ZERO
+	return best
+
+
+# Arm / maintain / release the pre-emptive breakout mode (see the block).
+func _update_breakout(p0: Vector2, speed: float, far: Vector2,
+		threats: Array) -> bool:
+	last_breakout_evals = 0
+	_breakout_free_now = 1.0
+	_breakout_free_fut = 1.0
+	# Pin escape already owns a commitment; never stack the two modes.
+	if _escaping:
+		_breakout_engaged = false
+		_breakout_ticks = 0
+		return false
+	if _breakout_engaged:
+		# RUNNING THE ESCAPE OUT. The mode does not hand control back when the
+		# forecast gap re-opens (being 50 px from one body already reads as a
+		# wide gap while the rest of the pack is still on us): it ends when the
+		# nearest body is genuinely clear, or the safety cap expires.
+		_breakout_ticks -= 1
+		_breakout_free_now = _ring_largest_gap(p0, threats, 0.0)
+		_breakout_free_fut = _ring_largest_gap(p0, threats, BREAKOUT_FORECAST)
+		if _nearest_body_dist(p0, threats) > BREAKOUT_CLEAR or _breakout_ticks <= 0:
+			_breakout_engaged = false
+			_breakout_cooldown = BREAKOUT_COOLDOWN
+			return false
+		_breakout_recheck -= 1
+		if _breakout_recheck <= 0:
+			_breakout_recheck = BREAKOUT_RECHECK
+			var nd = _rollout_escape_dir(p0, speed, far, threats)
+			last_breakout_evals += BREAKOUT_DIRS
+			if nd != Vector2.ZERO:
+				_breakout_dir = nd
+		return true
+	if _breakout_cooldown > 0:
+		_breakout_cooldown -= 1
+		return false
+	var contacts = _count_contact(p0, threats, BREAKOUT_RING)
+	if contacts < BREAKOUT_MIN_CONTACT:
+		return false
+	var gap_now = _ring_largest_gap(p0, threats, 0.0)
+	_breakout_free_now = gap_now
+	if gap_now < BREAKOUT_MIN_GAP:
+		return false
+	var gap_fut = _ring_largest_gap(p0, threats, BREAKOUT_FORECAST)
+	_breakout_free_fut = gap_fut
+	if gap_fut >= BREAKOUT_FUT_GAP:
+		return false
+	var dir = _rollout_escape_dir(p0, speed, far, threats)
+	last_breakout_evals += BREAKOUT_DIRS
+	if dir == Vector2.ZERO:
+		return false
+	_breakout_dir = dir
+	_breakout_engaged = true
+	_breakout_ticks = BREAKOUT_MAX_TICKS
+	_breakout_recheck = BREAKOUT_RECHECK
+	return true
+
+
+# Arm / maintain / release the committed item goal (see the GOAL_* block).
+# The pull is a separate cost term in _cost, and this function only decides
+# WHICH reward deserves the commitment and WHEN to drop it: calm neighbourhood
+# to acquire, a live body closing in to abort, arrival / disappearance /
+# timeout to release. Value 0 is a no-op (--arb-goal=0).
+func _update_goal(p0: Vector2, threats: Array, rewards: Array) -> bool:
+	if _goal_ticks > 0:
+		_goal_ticks -= 1
+		var still = false
+		for r in rewards:
+			if r.size() > 0 and r[0].distance_to(_goal_pos) < 30.0:
+				still = true
+				break
+		if not still:
+			_goal_on = false
+			_goal_ticks = 0
+			_goal_cooldown = GOAL_COOLDOWN
+			return false
+		var gd = p0.distance_to(_goal_pos)
+		if gd < GOAL_DONE_R:
+			# Arrived: the pickup's own taken bonus collects it this frame or
+			# next; release so the next item can be chosen.
+			_goal_on = false
+			_goal_ticks = 0
+			_goal_cooldown = 10
+			return false
+		if _nearest_body_dist(p0, threats) < GOAL_ABORT_R:
+			_goal_on = false
+			_goal_ticks = 0
+			_goal_cooldown = GOAL_COOLDOWN
+			return false
+		return true
+	if _goal_cooldown > 0:
+		_goal_cooldown -= 1
+		return false
+	if _nearest_body_dist(p0, threats) < GOAL_SAFE_R:
+		return false
+	var best_u = 0.0
+	var best_pos = Vector2.ZERO
+	var best_val = 0.0
+	for r in rewards:
+		if r.size() < 2:
+			continue
+		var v = float(r[1])
+		if v < GOAL_MIN_VALUE:
+			continue
+		# A held zone (revive) is not an item you walk over and consume.
+		var held = r.size() > 3 and float(r[3]) > 0.0 \
+				and not (walk_enable != 0.0 and r.size() > 4 and float(r[4]) > 0.0)
+		if held:
+			continue
+		var d = p0.distance_to(r[0])
+		if d > GOAL_RANGE or d < GOAL_DONE_R:
+			continue
+		var u = v / (1.0 + d / GOAL_FALLOFF)
+		if u > best_u:
+			best_u = u
+			best_pos = r[0]
+			best_val = v
+	if best_u <= 0.0:
+		return false
+	_goal_pos = best_pos
+	_goal_value = best_val
+	_goal_frac = clamp(best_val / 9.0, 0.5, 1.6)
+	_goal_ticks = GOAL_COMMIT
+	return true
 
 
 # Beam for the second ply: the top K PRIMARY headings by first-ply score,
@@ -1668,18 +2170,56 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 		# that ENDS inside the rim, so standing in it keeps earning and
 		# stepping out costs the same -- that is what makes the bot stay the
 		# three seconds a revive takes.
-		var held = r.size() > 3 and float(r[3]) > 0.0
-		var rim = float(r[3]) if held else (_pickup_radius if (r.size() < 3 or r[2]) else 0.0)
-		var d0 = max(p0.distance_to(r[0]) - rim, 0.0)
-		var d1 = max(p_end.distance_to(r[0]) - rim, 0.0)
-		var closed = (d0 - d1) / max(speed * horizon, 1.0)   # -1..1, share of the move spent approaching
-		var gain = w_pickup * r[1] * closed / (1.0 + d0 / PICKUP_FALLOFF)
-		if held:
-			if d1 == 0.0:
-				gain += w_pickup * r[1]                      # inside the zone: keep earning
-		elif d1 == 0.0 and d0 > 0.0:
-			gain += w_pickup * r[1] * pickup_taken           # this move collects it
+		#
+		# v2.5.0 WALK-ON rewards (r[4] = 1, world_view's DLC evolution items):
+		# the game only collects these when the pickup AREA is stepped over
+		# them, and the old 4-tuple path read their rim as "held" -- so the
+		# cost happily parked the bot on the rim, paying itself every frame
+		# without ever consuming the item (closed-loop sim reproduction).
+		# Walk-on is one-shot: keep the closing gradient all the way to the
+		# item (rim NOT subtracted from d0/d1, so there is still a gradient
+		# inside the rim) and pay `pickup_taken` on the move that crosses the
+		# rim. --arb-walk=0 restores the 2.4.0 held reading exactly.
+		var is_walk = walk_enable != 0.0 and r.size() > 4 and float(r[4]) > 0.0
+		var held = not is_walk and r.size() > 3 and float(r[3]) > 0.0
+		var gain = 0.0
+		var d1 = 0.0
+		if is_walk:
+			# one-shot walk-on: raw distances, gradient goes all the way in
+			var wrim = float(r[3])
+			var wd0 = p0.distance_to(r[0])
+			d1 = p_end.distance_to(r[0])
+			var wclosed = (wd0 - d1) / max(speed * horizon, 1.0)
+			gain = w_pickup * r[1] * wclosed \
+					/ (1.0 + max(wd0 - wrim, 0.0) / PICKUP_FALLOFF)
+			if d1 <= wrim and wd0 > wrim:
+				gain += w_pickup * r[1] * pickup_taken       # stepped onto the item
+		else:
+			var rim = float(r[3]) if held \
+					else (_pickup_radius if (r.size() < 3 or r[2]) else 0.0)
+			var d0 = max(p0.distance_to(r[0]) - rim, 0.0)
+			d1 = max(p_end.distance_to(r[0]) - rim, 0.0)
+			var closed = (d0 - d1) / max(speed * horizon, 1.0)   # -1..1, share of the move spent approaching
+			gain = w_pickup * r[1] * closed / (1.0 + d0 / PICKUP_FALLOFF)
+			if held:
+				if d1 == 0.0:
+					gain += w_pickup * r[1]                  # inside the zone: keep earning
+			elif d1 == 0.0 and d0 > 0.0:
+				gain += w_pickup * r[1] * pickup_taken       # this move collects it
 		total -= gain
+
+	# -- v2.5.0: committed item goal pull (see the GOAL_* block) --
+	# A persistent, ETA-scaled pull toward the reward chosen in choose().
+	# It exists because the per-step reward above only sees one 0.8 s hop:
+	# an item two seconds away never wins a frame against a single body, so
+	# without a commitment the bot only ever collects loot it passes. The
+	# weight is deliberately in the same HP unit and modest (max ~15 at a
+	# 9-value item) so a live lane still vetoes the detour.
+	if _goal_on and d != Vector2.ZERO:
+		var gd0 = p0.distance_to(_goal_pos)
+		var gd1 = p_end.distance_to(_goal_pos)
+		var gclosed = clamp((gd0 - gd1) / max(speed * horizon, 1.0), -1.0, 1.0)
+		total -= w_goal * _goal_frac * gclosed / (1.0 + gd0 / GOAL_FALLOFF)
 
 	# --- Character anchor ---
 	# Priced at the candidate's END position. Between the two radii every
@@ -1735,6 +2275,16 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 	# --- Standing still as a mechanical penalty ---
 	if _never_still and d == Vector2.ZERO:
 		total += NEVER_STILL_COST
+
+	# -- v2.5.0: breakout commitment (see the BREAKOUT_* block) --
+	# A pure direction reward in the same HP unit: the mode has already
+	# decided WHICH line leaves the ring (pursuit rollout), and this is what
+	# makes every frame vote for it instead of re-litigating the same
+	# least-bad local move. Contact bodies are simultaneously discounted in
+	# choose(); bullets, dashes and telegraphs are not, which is what keeps
+	# the escape a run-through and not a tank.
+	if _breakout_active and d != Vector2.ZERO:
+		total -= BREAKOUT_PULL * d.dot(_breakout_dir)
 
 	# --- Continuity ---
 	# One hysteresis term in the arbiter does the job that five separate commit

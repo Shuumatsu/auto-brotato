@@ -45,7 +45,7 @@ Brotato 的玩法决定了自动操作其实**只需要接管移动**：武器�
 ## 二、安装（Steam / macOS）
 
 > **当前状态（2026-11 实测后）**：本 Mod 已安装到你的游戏里：
-> `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.4.0-fork.zip`
+> `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.5.0-fork.zip`
 > （借用了 Mod Options 的工坊 item 目录）。测试用的 harness 已删除，其它 8 个 Mod 已恢复，
 > 测试前的 run 存档已还原。启动游戏即可生效；卸载/重装用 `./install.sh`。
 
@@ -59,7 +59,7 @@ cd auto-brotato
 脚本会：
 1. 自动定位 Brotato 安装目录；
 2. 找到你已安装的创意工坊 mod 目录（默认挑第一个，例如 Mod Options 的 `3598984651`）；
-3. 把构建好的 `dist/AutoBattler-2.4.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
+3. 把构建好的 `dist/AutoBattler-2.5.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
 
 然后**从 Steam 启动 Brotato**即可。
 
@@ -78,7 +78,7 @@ cd auto-brotato
 
 1. 启动 Steam（需登录拥有 Brotato 的账号）；
 2. 打开 `<Brotato>/GodotWorkshopUtility.app`；
-3. 选择 `dist/AutoBattler-2.4.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
+3. 选择 `dist/AutoBattler-2.5.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
    （可见性选"私有/不公开"也可以，自己订阅即可）；
 4. 上传后在 Steam 创意工坊订阅该 item，正常启动游戏。
 
@@ -130,6 +130,16 @@ cd auto-brotato
   - `--arb-evo=<M>`（默认 `1.0`）：进化物品拾取价值倍数，`0` = 完全回到 2.3.0
     （所有消耗品仍按食物定价、不主动捡进化物品）。
   - 例：`--arb-curse=6 --arb-evolved=4` 更激进；`--arb-curse=-1` 见到诅咒怪就躲。
+- v2.5.0 规划开关（默认全开，**=0 为精确回退**）：
+  - `--arb-breakout=0`：关闭"合围前预判突围"。默认会预测 1.8s 后的合围、用 1.6s 追击 rollout
+    选逃逸线并承诺跑出去；`0` = v2.4.0 行为。
+  - `--arb-goal=0` / `--arb-goalw=W`：关闭/缩放"高价值物品目标承诺"（进化果、受伤果子、树；
+    按 价值/ETA 选目标并持续拉过去，而不是只吃路过的）。
+  - `--arb-pursuit=0`：第二层前瞻改回常速度外推（默认按追击者会转向来外推）。
+  - `--arb-walk=0`：关闭 walk-on 拾取语义（回到 v2.4.0 的 held-rim 读法，仅用于 A/B 对照）。
+  - `--arb-waveend=0`：关闭波末进化果紧迫度（meca/mutant fruit 在波末不自动吸走，默认按剩余
+    波时把价值放大 1→4 倍）。
+  - 精确 v2.4.0 控制臂：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0`。
 - 若发现角色不动：先看 HUD 是否 `ON`；再确认 mod 是否被加载
   （`~/Library/Application Support/Brotato/logs/modloader.log` 里应有 `Pasha-AutoBattler`）。
 
@@ -320,7 +330,96 @@ killability 折减（目标价值下降）；伤害/速度变大 → 接触威�
 > 并校验 sha256 一致；其它 mod 由 benchmark 自动恢复。
 
 
+## 五点七、v2.5.0 规划能力（合围前突围 / 高价值物品）
+
+玩家反馈（本轮唯一需求来源）：“感觉缺乏规划，肉眼能看到要被包围，但当前策略不会提前规划；也不会规划去拣取高价值物品。”
+
+### 1. 结论：不完全是“局部贪心”的固有缺陷
+
+打分+argmin 的框架没变（它本来就是为了避免势场求和在包围时互相抵消）；缺的是三样东西：
+
+1. **时间尺度**：代价函数只看 0.8s，2-ply 实际有效 ~1.3s，而合围发生在 2–4s。从环内出发，
+   任意方向 0.8s 的终点都贴着身体，一阶分差≈0，二阶被 γ=0.6 压掉 → “现在做对每一步，加起来
+   走进死角”。长视界的 crowd runway（FAR_T=2.0）只测 min 距离且用直线速度，对称环里所有方向
+   一样差；能看 2.5s 墙 runway 的 `W_PREDICT` 默认还是关的。
+2. **目标承诺**：物品只以“每步梯度”进入评分（`w_pickup=1.0` × 价值 6–9，距离衰减 320px），
+   任何 >0.3s 的绕路都赢不了单只怪 10–40 的威胁价。没有“选中目标→坚持去拿→风险大再放弃”。
+3. **动作/奖励语义**：全速 24 方向 + 站立，物品在 1 个 horizon 步（~250px）内时全速方向全部
+   过冲、站立得分 0 → 停在半程；v2.4 的 45px walk-on rim 被 arbiter 当成 **held**（复活圈：
+   圈内每帧刷分）→ bot 停圈上不消费；meca/mutant fruit 波末不自动吸走，但 `wave_time_left`
+   从未用于物品紧迫度。
+
+### 2. 实现（全部默认开启，逐项可回退，5 个开关全 0 = v2.4.0 精确行为）
+
+- **预判突围**（`--arb-breakout`，arbiter.gd）：把接触体按“追击者转向我们、停在接触距离”投影
+  1.8s；用 3° 扇区算现在/未来的最大空缺角。现在还能过人（≥0.15 rad）但 1.8s 后缺口消失
+  （<0.02 rad）且接触体 ≥6 → 进入 engaged 突围：16 方向 × 1.6s 追击 rollout（墙计入最坏
+  间隙），得分 `worst + 0.6*terminal_clearance`；只有 worst ≥ −28px（允许用一次受伤换突围）
+  才装填。承诺跑 180 帧上限或直到最近身体 >260px；期间接触权重 ×0.35、room ×0.5、朝逃逸线
+  每帧 −60 HP 奖励；**子弹/冲锋/AOE 权重不动**（是“穿过人群”，不是“扛伤害”）。
+- **物品目标承诺**（`--arb-goal` / `--arb-goalw`）：无身体距 <320px 时按 `value/(1+ETA/420)`
+  选价值 ≥4 的 reward；`_cost` 加持续 pull，拾取/目标消失/身体 <170px/超时释放；物品在 1 个
+  horizon 步内时额外评一个“恰好落在目标上”的减速候选（修全速过冲→站立）。
+- **walk-on 语义**（`--arb-walk`）：world_view 给 4 种进化消耗品 reward 加第 5 元素 `r[4]=1.0`；
+  arbiter 对这类 reward 用一次性拾取语义（全程梯度 + 跨入 rim 的 taken bonus），不再当 held。
+- **波末紧迫度**（`--arb-waveend`，world_view）：只对 `attracted_at_end_of_wave=false` 的
+  meca/mutant fruit，`eta=dist/speed`，剩余波时 < eta+1.5s 时价值 ×(1→4)。
+- **pursuit 第二层**（`--arb-pursuit`）：planner 第二层对 contact/dash 改为朝第一动作终点转向
+  推进（常速度投影会把“即将关闭的缺口”算成开着）。
+- 性能：包围场景决策耗时约 1.2–1.3×（rollout 只在合围前兆触发；高威胁帧仍有 threat 上限保护）。
+
+### 3. 离线闭环验证（合成世界，真实 `arbiter.gd`）
+
+`_research/planning-v250/sim/`：追击者/远程/子弹/墙，60Hz，control = v2.4.0 行为，30s/局。
+
+| 场景 | control（v2.4） | v2.5 默认 |
+|---|---|---|
+| ring20_walls（20 只 280 速度追击者，小地图） | **6.3s 死亡**，包围 0.75s | **存活 30s**，hp70 |
+| ring14_fast（14 只 270 速度环） | 贴环转圈 nearest≈50px，surrounded 0.48s | 存活 hp88，surrounded 0.32s，3.0s 突围 |
+| ring10_open | surrounded 0.55s | surrounded 0，nearest 361px |
+| crossfire（10 追击 + 持续弹幕） | surrounded 0.72s | surrounded 0，nearest 79px |
+| item_far_safe（650px 外 9 价值 walk-on） | **0 拾取** | **1.9s 拾取** |
+| item_far_1slow（1 慢追击者 + 520px 物品） | **15.2s 死亡，0 拾取** | **1.6s 拾取，存活** |
+| ring10_faster（敌人 380 > 玩家 320） | 2.8s 死亡 | 4.3s 死亡（无解时诚实不装突围） |
+
+> 门禁/回归由 `_research/planning-v250/gate/`（verify-dev）与 `_research/planner-selftest/`
+> 覆盖：控制臂逐帧等价 v2.4、A/B 场景 PASS/FAIL、性能。真实游戏 A/B 需用户同意后跑
+> （`calibration/candidates_v250.json`）。
+
+### 4. 已知限制
+
+- 突围针对“人海/合围”，不保证“弹幕墙 + 追击者”的复合陷阱最优；子弹仍全价，可能边跑边吃弹。
+- rollout 用“朝当前位置转向 + 常速度”的追击近似，不是完整敌人 AI；已被合围封死时拒绝装填。
+- goal 的安全窗口只看身体距离，不看子弹弹道；接近途中仍由每帧威胁项兜底。
+- 默认值是 8 个合成场景 + 后续真机 A/B 的方向性结果，不是统计最优；可用 `--arb-*` 微调。
+
+---
+
 ## 六、验证状态（诚实说明）
+
+### v2.5.0 离线验收（2026-11-06，合成闭环 + 真实 `arbiter.gd`）
+
+- 冻结源码：`arbiter.gd` sha256 `d0be03c6…`（2328 行）、`world_view.gd` sha256 `f54a3d29…`；
+  `check_gd.sh` PASSED，无 SCRIPT ERROR。
+- 验收门禁 `_research/planning-v250/gate/run.sh` → **`RESULT checks=14 fails=0 PASS`**（exit 0）：
+
+| 判据 | 默认臂（v2.5 全开） | 控制臂（v2.5 开关全 0 = v2.4.0） | 结果 |
+|---|---|---|---|
+| A1 ring20_walls（20 只 280 速度追击者，1200×900） | **存活 30s**，hp_min 70，surrounded 0.42s | **6.3s 死亡**，surrounded 0.77s | PASS |
+| A2 ring_shooters（9 只含远程 + 弹幕压力） | 存活 30s，hp94，contact 0.43s | 存活 30s，hp94 | PASS（无退化） |
+| B1 item_walkon（520px 物品 + 慢追击者） | **1.63s 拾取**，存活 | 15.2s 死亡，**0 拾取**（停在 41.6px） | PASS |
+| B2 item_open（650px 物品，0 威胁） | **1.95s 拾取** | 0 拾取（停在 106px，v2.4 过冲缺陷） | PASS |
+| C 控制臂等价（3 场景 ×1800 帧） | — | 与 v2.4.0 HEAD **逐帧一致**（方向 + 结束态） | PASS |
+| D 性能 | A1 2028us / A2 1261us | A1 1569us / A2 1031us（**1.29× / 1.21×**） | PASS |
+
+- 现有 274 项合成自测扩展后 `_research/planner-selftest/run.sh` → **`RESULT checks=288 fails=0 PASS`**。
+- 对照组：把门禁跑在冻结的 v2.4.0 HEAD 上 → `checks=14 fails=3`（A1/B1/B2 默认臂按设计失败）。
+- **尚未做真实游戏 A/B**（需要用户同意后启动 Steam）：runbook
+  `_research/planning-v250/bench.md`，候选/场景 `calibration/candidates_v250.json` /
+  `calibration/scenarios_v250.json`，harness 新增 `brk=/breakouts=/goal=/goal_d=/goals=`
+  遥测用于证明功能在真机确实触发。真机结果补录前，v2.5.0 的结论只能按
+  “离线合成验收通过 + 无回归信号”理解。
+
 
 ### v2.3.0 策略升级验证（2026-11-06，本地真实游戏 + 自动 harness）
 
@@ -454,9 +553,9 @@ auto-brotato/
 ├── README.md                    # 项目主页（简短宣传）
 ├── docs/TECHNICAL.md            # 本文件（详细技术文档）
 ├── install.sh                   # 安装/卸载（Steam 工坊注入 / 非 Steam mods 目录）
-├── build.sh                     # 构建 dist/AutoBattler-2.4.0-fork.zip
+├── build.sh                     # 构建 dist/AutoBattler-2.5.0-fork.zip
 ├── dist/
-│   └── AutoBattler-2.4.0-fork.zip
+│   └── AutoBattler-2.5.0-fork.zip
 ├── mod/                         # Mod 源码（zip 内容）
 │   ├── LICENSE                  # 上游 BOTato MIT 许可
 │   ├── README-FORK.md           # 随 zip 分发的说明
@@ -469,6 +568,9 @@ auto-brotato/
 └── _research/                   # 调研资料（非交付物）
     ├── api-map.md               # 反编译后的 API 映射与兼容性结论
     ├── audit.md                 # BOTato 自动决策审计 + 瘦身方案
+    ├── strategy-v230-design.md  # v2.3.0 设计/根因
+    ├── planning-v250-design.md  # v2.5.0 设计/根因（本轮）
+    ├── planning-v250/           # 闭环仿真 sim/ + 离线门禁 gate/
     ├── decompiled/              # 反编译源码（脚本部分）
     └── run-smoke*.log           # ModLoader 加载冒烟测试日志
 ```

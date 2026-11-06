@@ -1,0 +1,9 @@
+{
+  "scenarios": [
+    {"character": "character_knight", "difficulty": 6, "start_wave": 6, "speed": 3.0},
+    {"character": "character_ranger", "difficulty": 6, "start_wave": 6, "speed": 3.0},
+    {"character": "character_knight", "difficulty": 3, "start_wave": 7, "speed": 3.0, "evolution_mult": 20},
+    {"character": "character_ranger", "difficulty": 3, "start_wave": 7, "speed": 3.0, "evolution_mult": 20}
+  ],
+  "note": "v2.5.0 planning A/B scenarios (Lead). Two groups: (1) D6 wave 6 Knight/Ranger = late-wave pressure, the encirclement metric is survival/min_hp/contact proxy; (2) D3 wave 7 with evolution_mult=20 = item group, metric evo_picked / evo_ground. speed=3.0 is compensated (physics ticks scaled) so decision cadence is unchanged. 2 arms x 4 scenarios x 3 repeats = 24 runs (~15-18 min). If D6/w6 is instantly lethal for both arms, drop to D6/w5 or use D3/w7 for group 1 as well."
+}

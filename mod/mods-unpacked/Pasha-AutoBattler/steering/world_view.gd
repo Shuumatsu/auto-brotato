@@ -271,13 +271,34 @@ const EVO_PARTS_VALUE = 6.0        # meca parts (2 parts, weapon evolution curre
 # radius-32 circle 24 px above the body, plus the item's own radius (~8-10 px):
 # the physical pickup is ~40 px. A rim-0 reward only has the linear approach
 # gradient, and that gradient dies AT zero -- the bot parks on the edge of the
-# pickup circle and never steps in. The arbiter's HELD rim (4th tuple field)
-# pays the FULL value to a move that ENDS inside it, which is the step this
-# pickup actually needs; the item leaves _consumables the frame it is taken.
+# pickup circle and never steps in. So the 4th tuple field (rim) pays the FULL
+# value to a move that ENDS inside it, which is the step this pickup actually
+# needs; the item leaves _consumables the frame it is taken.
+#
+# v2.5.0 adds a 5th tuple field, the WALK-ON tag: [pos, value, false, rim, 1.0].
+# The old arbiter read "rim > 0" as HELD, i.e. "stay inside this circle and keep
+# scoring every frame" (correct for the scapegoat revive zone, wrong here), so
+# a v2.4 4-tuple made the bot park ON the rim and never take the item. r[4]=1.0
+# says one-shot walk-on pickup; the 4th field keeps its rim-radius meaning.
+# --arb-walk=0 drops r[4] (exact v2.4 4-tuple), the A/B control arm.
 const EVO_WALK_RIM = 45.0
+const EVO_WALK_TAG = 1.0
+# v2.5.0 wave-end urgency. meca_fruit / mutant_fruit are the two evolution
+# pickups with attracted_at_end_of_wave=false: the attract area NEVER takes them
+# (see the EVO_* block above), so a fruit still on the floor when the horn blows
+# is lost outright. mutation_fruit / meca_parts ARE vacuumed at the wave end and
+# need no hurry. When wave_time_left drops inside the actual walk time
+# (eta = dist / speed) plus a margin, scale the value UP so the fruit outbids a
+# marginal detour now that there is no "later" left; never discount anything.
+# --arb-waveend=0 turns it off exactly (control arm).
+const EVO_WAVEEND_MARGIN = 1.5    # seconds of slack on top of the walk time
+const EVO_WAVEEND_BOOST = 3.0     # value x(1+3*progress) -> up to x4 at the horn
+const EVO_WAVEEND_CAP = 4.0
 var curse_mult = CURSE_TARGET_MULT      # --arb-curse
 var evolved_mult = EVOLVED_TARGET_MULT  # --arb-evolved
 var evo_mult = 1.0                 # --arb-evo: x all three pickup values; 0 = old food-only pricing
+var walk_tag = 1.0                 # --arb-walk: 1 = append r[4] walk-on tag; 0 = v2.4 4-tuple
+var waveend_mult = 1.0             # --arb-waveend: 1 = wave-end fruit urgency; 0 = off
 # Counts refreshed every gather and printed by the once-a-second BOTLOG DLC
 # line: a real-game A/B has to prove the bot SAW the DLC content, not only that
 # it scored it differently.
@@ -950,6 +971,17 @@ func apply_overrides(d: Dictionary) -> void:
 		# old food-only pricing exactly, so it is the A/B control arm.
 		evo_mult = float(d["evo"])
 		print("WORLDVIEW evo_mult=%.2f" % evo_mult)
+	if d.has("walk"):
+		# v2.5.0: 0 = do NOT append the 5th tuple field, i.e. write the v2.4
+		# [pos, value, false, rim] tuple verbatim. Together with the Lead's
+		# arbiter (r[4] distinguishes walk-on from held) this is the exact
+		# "held parking vs walk-on pickup" control arm.
+		walk_tag = float(d["walk"])
+		print("WORLDVIEW walk_tag=%.0f" % walk_tag)
+	if d.has("waveend"):
+		# v2.5.0: 0 = no end-of-wave urgency scaling on meca/mutant fruit.
+		waveend_mult = float(d["waveend"])
+		print("WORLDVIEW waveend_mult=%.2f" % waveend_mult)
 
 
 # Expected damage applications from a body over one horizon: how often it hits
@@ -1064,9 +1096,11 @@ func gather(main, player) -> void:
 	# arm is for.
 	last_evo_ground_n = 0
 	for c in main._consumables:
-		if c.position.distance_squared_to(pos) >= pickup_sq:
+		var dist_sq = c.position.distance_squared_to(pos)
+		if dist_sq >= pickup_sq:
 			continue
-		if _consumable_kind(c) != "":
+		var kind = _consumable_kind(c)
+		if kind != "":
 			last_evo_ground_n += 1
 		if evo_mult == 0.0:
 			rewards.push_back([c.position,
@@ -1078,10 +1112,18 @@ func gather(main, player) -> void:
 		if _consumable_is_food(c):
 			rewards.push_back([c.position, v])
 		else:
-			# Evolution pickup: HELD rim (see EVO_WALK_RIM), so a move that
-			# ENDS inside the physical pickup circle is paid in full; rim 0
-			# would leave the bot circling the edge.
-			rewards.push_back([c.position, v, false, EVO_WALK_RIM])
+			# Evolution pickup: rim (see EVO_WALK_RIM) so a move that ENDS
+			# inside the physical pickup circle is paid in full; rim 0 would
+			# leave the bot circling the edge. v2.5.0: r[4] tags it walk-on
+			# (one-shot, not a held stand), and the end-of-wave race scales
+			# the two fruits the game does NOT vacuum; 0.0 means "arrive at
+			# eta+margin", so the scaling is exactly 1.0 unless time is short.
+			v *= _evo_waveend_scale(kind, sqrt(dist_sq))
+			if walk_tag != 0.0:
+				rewards.push_back([c.position, v, false, EVO_WALK_RIM,
+						EVO_WALK_TAG])
+			else:
+				rewards.push_back([c.position, v, false, EVO_WALK_RIM])
 	# Drops are collected by the attract area, not by contact: the arbiter
 	# prices distance to its rim (profile pickup_radius) and pays a "taken"
 	# bonus for a move that ends inside it. A drop already flying to us is
@@ -1170,6 +1212,11 @@ func gather(main, player) -> void:
 
 	profile = {}
 	profile["pickup_radius"] = pickup_radius   # every row: the attract rim prices drops
+	# v2.5.0 telemetry only: lets the arbiter's BOTLOG show the end-of-wave
+	# race. Deliberately not a scoring key -- the two un-vacuumed fruits
+	# already carry the bonus in their reward value (_evo_waveend_scale), so
+	# nothing may add it a second time from here.
+	profile["wave_left"] = wave_time_left
 	# v2.3.0 contract: BOTH signals are written every frame, unconditionally --
 	# including on the --arb-charprofile=0 control arm and for rows whose
 	# resolver was skipped. The arbiter's own switches (--arb-kite=0,
@@ -1398,8 +1445,9 @@ func _food_value(mode: String, fpos: Vector2, missing_hp: float, spawner) -> flo
 # reward can never justify that detour -- which is the reported bug: they lie
 # on the floor for the whole wave.
 #
-# So they get a dedicated reward class and a held rim (EVO_WALK_RIM) instead of
-# the attract rim, and the eligibility gates the GAME itself uses: picking up
+# So they get a dedicated reward class, a walk-on rim (EVO_WALK_RIM) plus the
+# v2.5.0 r[4]=1.0 walk-on tag instead of the attract rim, and the eligibility
+# gates the GAME itself uses: picking up
 # an ineligible fruit does nothing at best and drags the evolution bar the
 # wrong way at worst, so the bot must not path to one it cannot use.
 
@@ -1434,9 +1482,29 @@ func _consumable_value(c, player, food_mode: String, missing_hp: float, spawner)
 	return _food_value(food_mode, c.position, missing_hp, spawner)
 
 
+# v2.5.0 wave-end urgency for a walk-on evolution pickup, applied to the value
+# AFTER _consumable_value (so it never rescues an ineligible or zero-priced
+# item) and BEFORE the reward is pushed. Only meca/mutant fruit are lost at the
+# horn (attracted_at_end_of_wave=false); mutation fruit / meca parts are
+# vacuumed and return 1.0. wave_time_left is 1e9 between waves, so the scaling
+# is a no-op there. Never lowers a value: clamped at 1.0 / EVO_WAVEEND_CAP.
+func _evo_waveend_scale(kind: String, dist: float) -> float:
+	if waveend_mult == 0.0:
+		return 1.0
+	if kind != "meca_fruit" and kind != "mutant_fruit":
+		return 1.0
+	var eta = dist / max(player_speed, 1.0)
+	var span = eta + EVO_WAVEEND_MARGIN
+	if wave_time_left >= span:
+		return 1.0
+	return clamp(1.0 + EVO_WAVEEND_BOOST * (1.0 - wave_time_left / span),
+			1.0, EVO_WAVEEND_CAP)
+
+
 # Healing consumables keep the old attract-rim semantics (the arbiter prices
 # them at profile pickup_radius). Everything else -- today only the evolution
-# items -- is a physical walk-on pickup and must be priced with a held rim.
+# items -- is a physical walk-on pickup, priced with the EVO_WALK_RIM rim and
+# (v2.5.0) the r[4] walk-on tag so the rim payment is one-shot, not held.
 func _consumable_is_food(c) -> bool:
 	return c.has_method("has_healing_effect") and c.has_healing_effect()
 

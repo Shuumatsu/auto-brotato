@@ -68,6 +68,43 @@ Every item has an exact control arm: `--arb-kite=0`, `--arb-tree=0`,
 `--arb-planthreats`, `--arb-adaptgain`, `--arb-adaptsecs`, `--arb-tree`,
 `--arb-food` (also accepted from `user://auto-battler-overrides.json`).
 
+## Planning upgrade (2.5.0)
+
+The 2-ply planner above is still a short-horizon tie-breaker (0.8 s first ply,
+gamma-discounted 0.8 s second ply). Field report: "you can see with the naked
+eye that it is about to be surrounded, but the bot does not plan ahead", plus
+"it never plans a detour for high-value items". v2.5.0 adds a small structural
+layer instead of more weight tuning:
+
+- **Pre-emptive breakout** (`--arb-breakout=1`): forecasts the ring 1.8 s
+  ahead (pursuers steer at us, bodies widen as the ring shrinks). When the
+  largest gap is passable NOW but projected to be gone, the bot commits to a
+  pursuit-rollout escape line and runs through the crowd (contact price is
+  discounted for the duration; bullets, dashes and telegraphs stay full
+  price). Ends when the nearest body is clear (>260 px) or the safety cap
+  expires. `=0` is the exact 2.4.0 control arm.
+- **Committed item goals** (`--arb-goal=1`): when the neighbourhood is calm,
+  pick the best reward by value/ETA (evolution fruits, hurt fruit, trees),
+  then keep a pull on it until collected / gone / something closes in. One
+  extra "land on the item" candidate fixes the full-speed overshoot that used
+  to park the bot half a step short. `--arb-goalw` scales the pull.
+- **Walk-on pickup semantics** (`--arb-walk=1`): v2.4 passed DLC evolution
+  consumables with a rim, which the arbiter read as a HELD revive zone (paid
+  every frame inside the rim) -- the bot parked on the rim and never took the
+  item. They are now tagged one-shot walk-on pickups.
+- **Wave-end urgency** (`--arb-waveend=1`): meca/mutant fruits are NOT
+  vacuumed at the wave horn; their value is scaled up to x4 as the walk time
+  approaches the remaining wave time.
+- **Pursuit-aware second ply** (`--arb-pursuit=1`): contact/dash threats are
+  advanced toward the first-ply end position instead of straight, so a ring
+  that closes while we turn is no longer projected as open.
+
+The exact v2.4.0 control arm is all five switches at 0:
+`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0`.
+Offline closed-loop evidence, all switches and limits are in the repo's
+`docs/TECHNICAL.md` §5.7. DLC-aware engage stances from 2.4.0 are unchanged
+(`--arb-curse` / `--arb-evolved` / `--arb-evo`).
+
 ## Install (Steam)
 
 The Steam build's ModLoader only loads zips from **subscribed Workshop item
