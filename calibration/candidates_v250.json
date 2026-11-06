@@ -1,7 +1,21 @@
 {
   "candidates": [
-    {"name": "control", "overrides": {"breakout": 0, "goal": 0, "pursuit": 0, "walk": 0, "waveend": 0}},
-    {"name": "planning", "overrides": {}}
+    {
+      "name": "control",
+      "overrides": {
+        "breakout": 0,
+        "goal": 0,
+        "pursuit": 0,
+        "walk": 0,
+        "waveend": 0,
+        "bounty": 0,
+        "space": 0
+      }
+    },
+    {
+      "name": "planning",
+      "overrides": {}
+    }
   ],
-  "note": "v2.5.0 planning A/B (design: _research/planning-v250-design.md, runbook: _research/planning-v250/bench.md). control = exact v2.4.0 behaviour (all five new switches 0: breakout/goal/pursuit/walk/waveend). planning = shipped v2.5.0 defaults. Optional third arm for attribution: {\"name\":\"no_breakout\",\"overrides\":{\"breakout\":0}}; {\"name\":\"no_goal\",\"overrides\":{\"goal\":0}}. Older builds (2.4.0) ignore unknown override keys, so a legacy build can be used as an external control."
+  "note": "v2.6.0 planning A/B. control = exact v2.4.0 behaviour (all seven switches 0: breakout/goal/pursuit/walk/waveend/bounty/space). planning = shipped v2.6.0 defaults. Optional attribution arms: {\"name\":\"no_breakout\",\"overrides\":{\"breakout\":0}}, {\"name\":\"no_goal\",\"overrides\":{\"goal\":0}}, {\"name\":\"no_bounty\",\"overrides\":{\"bounty\":0}}, {\"name\":\"no_space\",\"overrides\":{\"space\":0}}. Older builds ignore unknown keys, so a 2.5.0/2.4.0 zip can serve as an external control."
 }

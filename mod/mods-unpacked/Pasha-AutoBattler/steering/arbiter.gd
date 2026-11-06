@@ -473,6 +473,59 @@ const WALK_ENABLE = 1.0          # --arb-walk
 # touching distance. --arb-pursuit=0 is the exact constant-velocity control.
 const PURSUIT_ENABLE = 1.0       # --arb-pursuit
 
+# -- v2.6.0: wall / corner squeeze escape --
+# Player report after 2.5.0: "it still gets driven into the map edge and loses
+# room to operate." The ring-forecast breakout above only arms when the bodies
+# form a CLOSING RING; one-sided pressure can push the bot into the wall band
+# one locally-correct step at a time with no ring to forecast (the exact
+# herding pattern documented in the W_PREDICT block). The 0.8 s wall term only
+# reacts when the player is nearly pinned, and pin escape is after the fact.
+# Same committed escape, different trigger: inside BREAKOUT_EDGE of a wall,
+# with a crowd on us and NOT already escaping, run the pursuit rollout toward
+# open floor. It reuses the --arb-breakout switch; =0 keeps the 2.5.0 mode set.
+const BREAKOUT_EDGE = 150.0      # px from the nearest wall that counts as the band
+const BREAKOUT_EDGE_CLEAR = 380.0 # px: enough floor to end a corner escape
+const BREAKOUT_CROWD_R = 430.0   # px: bodies inside this ring + near a wall = squeeze
+const BREAKOUT_CROWD_MIN = 4     # bodies needed to call it a squeeze (ring needs 6)
+# v2.6.0: weak "open floor" potential. The wall term above is quadratic and
+# only reaches WALL_CAP=220 px, so from mid-arena there is NO gradient against
+# drifting into the edge -- many locally-fine steps later the bot is in the
+# band with no runway (the reported "driven into the map edge"). This adds a
+# tie-breaker-sized pull toward open floor out to SPACE_CAP: at 380 px from a
+# wall it is 0, and inside the band it is a few HP points, enough to break the
+# wander/commit ties without outvoting a live threat or a kill. --arb-space=0
+# is the exact 2.5.0 control arm.
+const W_SPACE = 2.5
+const SPACE_CAP = 380.0
+# A corner retreat is NOT a cage breakout: the floor is still open behind us, so
+# it may not buy the exit with contact damage the way the ring mode does. It
+# keeps most of the threat price and a weaker pull, letting the normal terms
+# veto a retreat through the crowd (soldier/melee herd regressions in the sim).
+const BREAKOUT_CORNER_CONTACT = 1.0   # no contact discount: this is a retreat
+const BREAKOUT_CORNER_ROOM = 1.0
+const BREAKOUT_CORNER_PULL = 18.0
+const BREAKOUT_CORNER_TICKS = 90      # 1.5 s: enough to walk out of the band
+const BREAKOUT_CORNER_COOLDOWN = 120  # do not ping-pong back to the wall
+
+# -- v2.6.0: bounty approach (special monsters / spawners) --
+# Field report: "it still does not like going after special monsters or their
+# drops." DLC cursed/evolved bodies, spawner eggs and bosses carry a target
+# value but targets are only visible to the DPS term once they are near weapon
+# range (+ ACQUIRE_BAND); a special sitting 1-2 screens away simply never
+# enters the score. The bounty layer is a committed approach toward a special
+# target while the neighbourhood is calm: pull until it is inside firing
+# range, abort when a body closes in, hp is low or the target vanishes.
+# --arb-bounty=0 is the exact 2.5.0 control arm (no target tag, no pull).
+const BOUNTY_ENABLE = 1.0        # --arb-bounty
+const BOUNTY_PULL = 14.0         # HP-units per unit of alignment with the target
+const BOUNTY_RANGE = 900.0       # px: never plan an approach beyond this
+const BOUNTY_BODY_SAFE = 300.0   # px: acquire only when no body is nearer
+const BOUNTY_BODY_ABORT = 180.0  # px: drop the approach when something gets this near
+const BOUNTY_MIN_HP = 0.35       # don't go hunting below this hp ratio
+const BOUNTY_DESIRE = 0.9        # desired range as a share of weapon range
+const BOUNTY_TICKS = 45          # frames an approach survives before re-acquisition
+const BOUNTY_HOLD = 60.0         # px: target moved this far -> re-acquire
+
 # -- v2.3.0: hit-adaptive alert --
 # A build that just took a big hit should behave more cautiously for a moment.
 # Online, cheap, and trivially switchable: compare hp_ratio with the previous
@@ -592,6 +645,8 @@ var adapt_secs = ADAPT_SECS      # --arb-adaptsecs
 # v2.5.0 switches (see the v2.5 constant blocks above). Defaults are the new
 # behaviour; every one has an exact 2.4.0 control arm (=0).
 var breakout_enable = BREAKOUT_ENABLE   # --arb-breakout
+var bounty_enable = BOUNTY_ENABLE       # --arb-bounty
+var w_space = W_SPACE                   # --arb-space: open-floor potential
 var goal_enable = GOAL_ENABLE           # --arb-goal
 var w_goal = W_GOAL                     # --arb-goalw
 var walk_enable = WALK_ENABLE           # --arb-walk: honor r[4] walk-on marker
@@ -605,6 +660,12 @@ var _breakout_cooldown = 0
 var _breakout_recheck = 0
 var _breakout_free_now = 1.0
 var _breakout_free_fut = 1.0
+var _breakout_reason = ""
+var _breakout_edge = 1e9
+var _bounty_on = false
+var _bounty_pos = Vector2.ZERO
+var _bounty_ticks = 0
+var _bounty_desired = 0.0
 var _goal_on = false
 var _goal_pos = Vector2.ZERO
 var _goal_value = 0.0
@@ -617,6 +678,9 @@ var last_breakout_engaged = false
 var last_breakout_free_now = 1.0
 var last_breakout_free_fut = 1.0
 var last_breakout_evals = 0
+var last_breakout_reason = ""
+var last_bounty = false
+var last_bounty_dist = -1.0
 var last_goal = false
 var last_goal_dist = -1.0
 var last_goal_value = 0.0
@@ -830,6 +894,8 @@ func apply_overrides(d: Dictionary) -> void:
 	if d.has("adaptsecs"): adapt_secs = max(float(d["adaptsecs"]), 0.0)
 	# v2.5.0 switches: every one of these at 0 is the exact 2.4.0 control arm.
 	if d.has("breakout"): breakout_enable = float(d["breakout"])
+	if d.has("bounty"): bounty_enable = float(d["bounty"])
+	if d.has("space"): w_space = float(d["space"])
 	if d.has("goal"): goal_enable = float(d["goal"])
 	if d.has("goalw"): w_goal = float(d["goalw"])
 	if d.has("walk"): walk_enable = float(d["walk"])
@@ -844,6 +910,7 @@ func apply_overrides(d: Dictionary) -> void:
 			plan_max_threats, adapt_enable, adapt_gain, adapt_secs])
 		print("ARBITER v2.5.0: breakout=%.2f goal=%.2f goalw=%.2f walk=%.2f pursuit=%.2f" % [
 			breakout_enable, goal_enable, w_goal, walk_enable, pursuit_enable])
+		print("ARBITER v2.6.0: bounty=%.2f space=%.2f" % [bounty_enable, w_space])
 
 
 # Returns the chosen unit direction, or ZERO to stand still.
@@ -958,6 +1025,7 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 		_breakout_active = _update_breakout(p0, speed, far, threats)
 	last_breakout = _breakout_active
 	last_breakout_engaged = _breakout_engaged
+	last_breakout_reason = _breakout_reason
 	last_breakout_free_now = _breakout_free_now
 	last_breakout_free_fut = _breakout_free_fut
 	_goal_on = false
@@ -966,6 +1034,12 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 	last_goal = _goal_on
 	last_goal_dist = p0.distance_to(_goal_pos) if _goal_on else -1.0
 	last_goal_value = _goal_value if _goal_on else 0.0
+	# v2.6.0: bounty approach -- one objective at a time, item goal first.
+	_bounty_on = false
+	if bounty_enable != 0.0 and not escaping and not _breakout_active and not _goal_on:
+		_bounty_on = _update_bounty(p0, targets, threats, weapon_range)
+	last_bounty = _bounty_on
+	last_bounty_dist = p0.distance_to(_bounty_pos) if _bounty_on else -1.0
 
 	# Scaled BEFORE _prepare, deliberately: the per-kind weight is baked into
 	# _p_coef in there (see the kw assignment), so discounting these afterwards
@@ -991,9 +1065,14 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 		# Run THROUGH the bodies, not around them: the crowd is what the mode
 		# is escaping, so its contact price is what the commitment buys down.
 		# Projectiles, dashes and telegraphs keep full price -- breaking out
-		# must never mean tanking a bullet lane.
-		w_contact *= BREAKOUT_CONTACT
-		w_room *= BREAKOUT_ROOM
+		# must never mean tanking a bullet lane. A CORNER retreat is different:
+		# open floor exists behind the crowd, so it keeps most of the price.
+		if _breakout_reason == "corner":
+			w_contact *= BREAKOUT_CORNER_CONTACT
+			w_room *= BREAKOUT_CORNER_ROOM
+		else:
+			w_contact *= BREAKOUT_CONTACT
+			w_room *= BREAKOUT_ROOM
 	if caution != 1.0:
 		w_proj *= caution
 		w_contact *= caution
@@ -1661,22 +1740,32 @@ func _update_breakout(p0: Vector2, speed: float, far: Vector2,
 	last_breakout_evals = 0
 	_breakout_free_now = 1.0
 	_breakout_free_fut = 1.0
+	_breakout_edge = min(min(p0.x - BREAKOUT_BODY, far.x - BREAKOUT_BODY - p0.x),
+			min(p0.y - BREAKOUT_BODY, far.y - BREAKOUT_BODY - p0.y))
 	# Pin escape already owns a commitment; never stack the two modes.
 	if _escaping:
 		_breakout_engaged = false
 		_breakout_ticks = 0
+		_breakout_reason = ""
 		return false
 	if _breakout_engaged:
 		# RUNNING THE ESCAPE OUT. The mode does not hand control back when the
 		# forecast gap re-opens (being 50 px from one body already reads as a
 		# wide gap while the rest of the pack is still on us): it ends when the
-		# nearest body is genuinely clear, or the safety cap expires.
+		# nearest body is genuinely clear, the floor is open again (corner
+		# escape), or the safety cap expires.
 		_breakout_ticks -= 1
 		_breakout_free_now = _ring_largest_gap(p0, threats, 0.0)
 		_breakout_free_fut = _ring_largest_gap(p0, threats, BREAKOUT_FORECAST)
-		if _nearest_body_dist(p0, threats) > BREAKOUT_CLEAR or _breakout_ticks <= 0:
+		var nearest = _nearest_body_dist(p0, threats)
+		var corner_done = _breakout_reason == "corner" \
+				and _breakout_edge > BREAKOUT_EDGE_CLEAR \
+				and nearest > BREAKOUT_CLEAR * 0.7
+		if nearest > BREAKOUT_CLEAR or corner_done or _breakout_ticks <= 0:
 			_breakout_engaged = false
-			_breakout_cooldown = BREAKOUT_COOLDOWN
+			_breakout_cooldown = BREAKOUT_CORNER_COOLDOWN \
+					if _breakout_reason == "corner" else BREAKOUT_COOLDOWN
+			_breakout_reason = ""
 			return false
 		_breakout_recheck -= 1
 		if _breakout_recheck <= 0:
@@ -1689,26 +1778,110 @@ func _update_breakout(p0: Vector2, speed: float, far: Vector2,
 	if _breakout_cooldown > 0:
 		_breakout_cooldown -= 1
 		return false
+
+	# Trigger 1 (v2.5.0): a closing ring -- gap passable now, gone by FORECAST.
 	var contacts = _count_contact(p0, threats, BREAKOUT_RING)
-	if contacts < BREAKOUT_MIN_CONTACT:
+	if contacts >= BREAKOUT_MIN_CONTACT:
+		var gap_now = _ring_largest_gap(p0, threats, 0.0)
+		_breakout_free_now = gap_now
+		if gap_now >= BREAKOUT_MIN_GAP:
+			var gap_fut = _ring_largest_gap(p0, threats, BREAKOUT_FORECAST)
+			_breakout_free_fut = gap_fut
+			if gap_fut < BREAKOUT_FUT_GAP:
+				var dir = _rollout_escape_dir(p0, speed, far, threats)
+				last_breakout_evals += BREAKOUT_DIRS
+				if dir != Vector2.ZERO:
+					_breakout_dir = dir
+					_breakout_engaged = true
+					_breakout_ticks = BREAKOUT_MAX_TICKS
+					_breakout_recheck = BREAKOUT_RECHECK
+					_breakout_reason = "ring"
+					return true
+
+	# Trigger 2 (v2.6.0): one-sided pressure squeezing us into the wall band.
+	# No ring is required -- a clump can herd the bot from open floor into the
+	# edge (and then a corner) while every 0.8 s step looks locally fine. When
+	# the floor is already thin and a crowd is on us, run the same wall-aware
+	# rollout back toward open space and commit; this is the missing long-
+	# horizon half of the wall term (see BREAKOUT_EDGE).
+	if _breakout_edge < BREAKOUT_EDGE:
+		var crowd = _count_contact(p0, threats, BREAKOUT_CROWD_R)
+		if crowd >= BREAKOUT_CROWD_MIN:
+			var cdir = _rollout_escape_dir(p0, speed, far, threats)
+			last_breakout_evals += BREAKOUT_DIRS
+			if cdir != Vector2.ZERO:
+				_breakout_dir = cdir
+				_breakout_engaged = true
+				_breakout_ticks = BREAKOUT_CORNER_TICKS
+				_breakout_recheck = BREAKOUT_RECHECK
+				_breakout_reason = "corner"
+				return true
+	return false
+
+
+# Arm / maintain / release a BOUNTY approach toward a special target (see the
+# BOUNTY_* block): bosses/elites, spawner eggs, cursed/evolved bodies. Only the
+# calm case is planned -- a body within BOUNTY_BODY_SAFE vetoes acquisition and
+# one inside BOUNTY_BODY_ABORT aborts -- so this is "go pick the fight while it
+# is safe", not "tunnel through the wave for a kill".
+func _update_bounty(p0: Vector2, targets: Array, threats: Array,
+		weapon_range: float) -> bool:
+	var desired = max(weapon_range * BOUNTY_DESIRE, 70.0)
+	_bounty_desired = desired
+	if _bounty_ticks > 0:
+		_bounty_ticks -= 1
+		var nearest_t = _nearest_special(targets, _bounty_pos, BOUNTY_HOLD)
+		if nearest_t < 0.0:
+			_bounty_ticks = 0
+			return false
+		if _nearest_body_dist(p0, threats) < BOUNTY_BODY_ABORT:
+			_bounty_ticks = 0
+			return false
+		if _hp_ratio < BOUNTY_MIN_HP * 0.7:
+			_bounty_ticks = 0
+			return false
+		if p0.distance_to(_bounty_pos) <= desired:
+			# Inside firing range: the normal DPS/standoff terms take over.
+			_bounty_ticks = 0
+			return false
+		return true
+	if _hp_ratio < BOUNTY_MIN_HP:
 		return false
-	var gap_now = _ring_largest_gap(p0, threats, 0.0)
-	_breakout_free_now = gap_now
-	if gap_now < BREAKOUT_MIN_GAP:
+	if _nearest_body_dist(p0, threats) < BOUNTY_BODY_SAFE:
 		return false
-	var gap_fut = _ring_largest_gap(p0, threats, BREAKOUT_FORECAST)
-	_breakout_free_fut = gap_fut
-	if gap_fut >= BREAKOUT_FUT_GAP:
+	var best_u = 0.0
+	var best_pos = Vector2.ZERO
+	for t in targets:
+		if t.size() < 4 or float(t[3]) <= 0.0:
+			continue    # no v2.6 special tag (or bounty disabled by world_view)
+		var d = p0.distance_to(t[0])
+		if d > BOUNTY_RANGE or d <= desired:
+			continue
+		# Value / ETA: a high-value special just outside the horizon of the
+		# normal target term still loses to a nearer one.
+		var u = float(t[1]) / (1.0 + d / 480.0)
+		if u > best_u:
+			best_u = u
+			best_pos = t[0]
+	if best_u <= 0.0:
 		return false
-	var dir = _rollout_escape_dir(p0, speed, far, threats)
-	last_breakout_evals += BREAKOUT_DIRS
-	if dir == Vector2.ZERO:
-		return false
-	_breakout_dir = dir
-	_breakout_engaged = true
-	_breakout_ticks = BREAKOUT_MAX_TICKS
-	_breakout_recheck = BREAKOUT_RECHECK
+	_bounty_pos = best_pos
+	_bounty_ticks = BOUNTY_TICKS
 	return true
+
+
+# Distance to the nearest tagged special target, or -1 when none is within
+# `radius` of `at` (the goal token check for a moved/despawned target).
+func _nearest_special(targets: Array, at: Vector2, radius: float) -> float:
+	var best = -1.0
+	var r_sq = radius * radius
+	for t in targets:
+		if t.size() < 4 or float(t[3]) <= 0.0:
+			continue
+		var dsq = t[0].distance_squared_to(at)
+		if dsq <= r_sq and (best < 0.0 or dsq < best):
+			best = dsq
+	return -1.0 if best < 0.0 else sqrt(best)
 
 
 # Arm / maintain / release the committed item goal (see the GOAL_* block).
@@ -1988,6 +2161,15 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 			var short = 1.0 - run_t / predict_secs
 			total += w_predict * short * short
 
+	# v2.6.0: open-floor potential (see the W_SPACE block). Priced at the END
+	# position, quadratic in the wall band but reaching SPACE_CAP so the bot
+	# does not drift toward the edge before the wall term can see it.
+	if w_space > 0.0:
+		var sp_edge = min(wx, wy)
+		if sp_edge < SPACE_CAP:
+			var sp_short = 1.0 - sp_edge / SPACE_CAP
+			total += w_space * sp_short * sp_short
+
 	# Escape ALONG the wall, not off it. Only while the pin-escape mode is
 	# active: the radial exit is where the herding swarm stands, the lateral
 	# one is usually open, and no other term can tell them apart. Rewards the
@@ -2221,6 +2403,19 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 		var gclosed = clamp((gd0 - gd1) / max(speed * horizon, 1.0), -1.0, 1.0)
 		total -= w_goal * _goal_frac * gclosed / (1.0 + gd0 / GOAL_FALLOFF)
 
+	# -- v2.6.0: bounty approach pull (see the BOUNTY_* block) --
+	# Direction-alignment reward toward the special target, ramped by how far
+	# outside firing range we still are, so it stops pulling the moment the
+	# normal target/DPS terms can take over. No threat terms are discounted:
+	# the acquisition gate is what keeps this a calm-neighbourhood decision.
+	if _bounty_on and d != Vector2.ZERO:
+		var bv = _bounty_pos - p0
+		var bd = bv.length()
+		if bd > 1.0:
+			var align = d.dot(bv / bd)
+			var ramp = clamp((bd - _bounty_desired) / 320.0, 0.0, 1.0)
+			total -= BOUNTY_PULL * align * ramp
+
 	# --- Character anchor ---
 	# Priced at the candidate's END position. Between the two radii every
 	# candidate scores the same zero and the anchor exerts no force at all,
@@ -2284,7 +2479,8 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 	# choose(); bullets, dashes and telegraphs are not, which is what keeps
 	# the escape a run-through and not a tank.
 	if _breakout_active and d != Vector2.ZERO:
-		total -= BREAKOUT_PULL * d.dot(_breakout_dir)
+		var pull = BREAKOUT_CORNER_PULL if _breakout_reason == "corner" else BREAKOUT_PULL
+		total -= pull * d.dot(_breakout_dir)
 
 	# --- Continuity ---
 	# One hysteresis term in the arbiter does the job that five separate commit

@@ -229,6 +229,18 @@ const KITE_FRAC_RANGED = 0.75
 const METER_COOLDOWN_MIN = 12.0  # buccaneer: frames of cooldown that make a weapon
                                  # worth spending a pickup to reset
 const LOOT_VALUE = 4.0           # a fleeing loot alien, for characters that can catch one
+# -- v2.6.0: opportunity values (special targets / special drops) --
+# Field report: "it still does not go after special monsters or their drops."
+# Two gaps: (1) loot aliens were priced at 4 (a tie-breaker next to a fight)
+# and no target tag told the arbiter which bodies are WORTH a committed
+# approach (boss/elite, spawner egg, cursed/evolved); (2) item boxes were
+# priced only as healing food (heal 3 / heal 100 capped at 12), so at full HP
+# a crate was worth nothing to the scorer even though it contains an item.
+# --arb-bounty=0 / --arb-boxes=0 restore the exact 2.5.0 values and tuple
+# arity (A/B control arms).
+const LOOT_BOUNTY_VALUE = 6.0    # loot alien when bounty is on (>= GOAL_MIN_VALUE)
+const BOX_VALUE = 5.0            # a normal item crate: one item choice
+const LEGENDARY_BOX_VALUE = 10.0 # legendary crate: one legendary item choice
 const BIRTH_STEP_COST = 4.0      # avoid_births: a red X priced as a small standing AoE.
                                  # Stepping on one relocates (bull) or cancels (pacifist,
                                  # jack, king) the spawn -- a real cost, never a lethal
@@ -298,6 +310,8 @@ var curse_mult = CURSE_TARGET_MULT      # --arb-curse
 var evolved_mult = EVOLVED_TARGET_MULT  # --arb-evolved
 var evo_mult = 1.0                 # --arb-evo: x all three pickup values; 0 = old food-only pricing
 var walk_tag = 1.0                 # --arb-walk: 1 = append r[4] walk-on tag; 0 = v2.4 4-tuple
+var bounty_tag = 1.0               # --arb-bounty: special-target tag + loot value
+var boxes_mult = 1.0               # --arb-boxes: item crate value
 var waveend_mult = 1.0             # --arb-waveend: 1 = wave-end fruit urgency; 0 = off
 # Counts refreshed every gather and printed by the once-a-second BOTLOG DLC
 # line: a real-game A/B has to prove the bot SAW the DLC content, not only that
@@ -982,6 +996,15 @@ func apply_overrides(d: Dictionary) -> void:
 		# v2.5.0: 0 = no end-of-wave urgency scaling on meca/mutant fruit.
 		waveend_mult = float(d["waveend"])
 		print("WORLDVIEW waveend_mult=%.2f" % waveend_mult)
+	if d.has("bounty"):
+		# v2.6.0: 0 = no special-target tag on target tuples and the 2.5.0
+		# loot-alien value; exact control arm for the bounty layer.
+		bounty_tag = float(d["bounty"])
+		print("WORLDVIEW bounty_tag=%.0f" % bounty_tag)
+	if d.has("boxes"):
+		# v2.6.0: 0 = item crates keep their 2.5.0 healing-only pricing.
+		boxes_mult = float(d["boxes"])
+		print("WORLDVIEW boxes_mult=%.2f" % boxes_mult)
 
 
 # Expected damage applications from a body over one horizon: how often it hits
@@ -1027,7 +1050,8 @@ func gather(main, player) -> void:
 	# approximation of one.
 	var row = _resolve_profile_row(player, spawner, character_id)
 	prefers_still = row.get("still", "") == "prefer"
-	_loot_value = float(row.get("loot_value", LOOT_VALUE))
+	_loot_value = float(row.get("loot_value",
+			LOOT_BOUNTY_VALUE if bounty_tag != 0.0 else LOOT_VALUE))
 	if row.has("kill_ref"):
 		# A weaponless kit has no weapon DPS to measure, so killability would
 		# sit at the 20 HP floor and nothing on wave 5+ would count as killable.
@@ -1456,6 +1480,18 @@ func _consumable_value(c, player, food_mode: String, missing_hp: float, spawner)
 	var data = c.get("consumable_data")
 	if data == null:
 		return 0.0
+	# v2.6.0: item crates (normal / legendary) are a whole item choice, not
+	# just the 3/100 HP their healing effect happens to carry. Price them as
+	# the better of "food value" and their item value so a full-HP bank-mode
+	# kit still walks over one when the floor is calm (the goal layer picks it
+	# up from the reward list). --arb-boxes=0 restores the 2.5.0 food pricing.
+	if boxes_mult != 0.0:
+		var boxv = _box_value(c) * boxes_mult
+		if boxv > 0.0:
+			var foodv = 0.0
+			if _consumable_is_food(c):
+				foodv = _food_value(food_mode, c.position, missing_hp, spawner)
+			return max(foodv, boxv)
 	var kind = _evolution_consumable_kind(data)
 	if kind != "":
 		# 0 is the exact v2.3.0 control arm. (The gather loop branches on it
@@ -1499,6 +1535,28 @@ func _evo_waveend_scale(kind: String, dist: float) -> float:
 		return 1.0
 	return clamp(1.0 + EVO_WAVEEND_BOOST * (1.0 - wave_time_left / span),
 			1.0, EVO_WAVEEND_CAP)
+
+
+# v2.6.0: item crate detection by the game's own id hashes (with id-string
+# fallback for resources whose hash channel is deferred). 0 = not a crate.
+func _box_value(c) -> float:
+	var data = c.get("consumable_data")
+	if data == null:
+		return 0.0
+	var id_hash = data.get("my_id_hash")
+	if typeof(id_hash) == TYPE_INT or typeof(id_hash) == TYPE_REAL:
+		var ih = int(id_hash)
+		if ih == Keys.consumable_legendary_item_box_hash:
+			return LEGENDARY_BOX_VALUE
+		if ih == Keys.consumable_item_box_hash:
+			return BOX_VALUE
+	var my_id = data.get("my_id")
+	if my_id is String:
+		if my_id == "consumable_legendary_item_box":
+			return LEGENDARY_BOX_VALUE
+		if my_id == "consumable_item_box":
+			return BOX_VALUE
+	return 0.0
 
 
 # Healing consumables keep the old attract-rim semantics (the arbiter prices
@@ -1880,7 +1938,20 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 				tv *= evolved_mult
 			if (cursed and curse_mult < 0.0) or (evolved and evolved_mult < 0.0):
 				tv = 0.0
-		targets.push_back([unit.position, tv, unit is Boss])
+		# v2.6.0: 4th field = special-target class (1 boss/elite, 2 spawner
+		# egg, 3 cursed/evolved) for the arbiter's bounty approach. With
+		# --arb-bounty=0 the tuple stays the exact 2.5.0 3-field form.
+		if bounty_tag != 0.0:
+			var special = 0
+			if unit is Boss:
+				special = 1
+			elif _is_egg(unit):
+				special = 2
+			elif cursed or evolved:
+				special = 3
+			targets.push_back([unit.position, tv, unit is Boss, special])
+		else:
+			targets.push_back([unit.position, tv, unit is Boss])
 
 	if dist_sq >= range_sq:
 		return    # too far to threaten us this horizon

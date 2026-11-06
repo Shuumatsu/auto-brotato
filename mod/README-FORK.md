@@ -105,6 +105,35 @@ Offline closed-loop evidence, all switches and limits are in the repo's
 `docs/TECHNICAL.md` §5.7. DLC-aware engage stances from 2.4.0 are unchanged
 (`--arb-curse` / `--arb-evolved` / `--arb-evo`).
 
+## Space planning & special targets (2.6.0)
+
+v2.5.0 fixed the closing ring and the item detour, but a second play test still
+saw the bot herded into the map edge and ignoring special monsters / drops:
+
+- **Wall-band retreat** (`--arb-breakout`): inside 150 px of a wall with >=4
+  bodies within 430 px, run the same wall-aware pursuit rollout back toward
+  open floor and commit for 1.5 s. Unlike the ring breakout there is NO contact
+  discount -- it is a retreat, not a push through the crowd. A 2 s cooldown
+  stops wall ping-pong.
+- **Open-floor potential** (`--arb-space`, weight 2.5, reach 380 px): a
+  tie-breaker-sized pull toward open floor outside the wall term's 220 px
+  reach, so locally-fine steps cannot drift the bot into the band.
+- **Bounty approach** (`--arb-bounty`): when nothing is within 300 px and HP
+  is above 35%, walk toward a tagged special target (boss/elite, spawner egg,
+  cursed/evolved) up to 900 px away until it is inside 0.9x weapon range;
+  abort when a body closes to 180 px, HP drops or the target disappears.
+  world_view tags target tuples with the special class (3-field tuples are
+  kept when bounty=0, the exact 2.5.0 form).
+- **Special drops**: item/legendary crates are priced as `max(healing, 5/10)`
+  (a crate is an item choice, not a 3 HP fruit); loot aliens move from 4 to 6
+  so the goal layer plans the chase. Opt-outs: `--arb-boxes`, `--arb-bounty`.
+
+The exact v2.4.0 control arm is all seven switches at 0:
+`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0
+--arb-space=0 --arb-bounty=0 --arb-boxes=0` (walk/waveend/box/bounty live in
+world_view; the rest in the arbiter). Offline evidence: `docs/TECHNICAL.md`
+§5.8 and the 19-check gate in `_research/planning-v250/gate/`.
+
 ## Install (Steam)
 
 The Steam build's ModLoader only loads zips from **subscribed Workshop item

@@ -45,7 +45,7 @@ Brotato 的玩法决定了自动操作其实**只需要接管移动**：武器�
 ## 二、安装（Steam / macOS）
 
 > **当前状态（2026-11 实测后）**：本 Mod 已安装到你的游戏里：
-> `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.5.0-fork.zip`
+> `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.6.0-fork.zip`
 > （借用了 Mod Options 的工坊 item 目录）。测试用的 harness 已删除，其它 8 个 Mod 已恢复，
 > 测试前的 run 存档已还原。启动游戏即可生效；卸载/重装用 `./install.sh`。
 
@@ -59,7 +59,7 @@ cd auto-brotato
 脚本会：
 1. 自动定位 Brotato 安装目录；
 2. 找到你已安装的创意工坊 mod 目录（默认挑第一个，例如 Mod Options 的 `3598984651`）；
-3. 把构建好的 `dist/AutoBattler-2.5.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
+3. 把构建好的 `dist/AutoBattler-2.6.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
 
 然后**从 Steam 启动 Brotato**即可。
 
@@ -78,7 +78,7 @@ cd auto-brotato
 
 1. 启动 Steam（需登录拥有 Brotato 的账号）；
 2. 打开 `<Brotato>/GodotWorkshopUtility.app`；
-3. 选择 `dist/AutoBattler-2.5.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
+3. 选择 `dist/AutoBattler-2.6.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
    （可见性选"私有/不公开"也可以，自己订阅即可）；
 4. 上传后在 Steam 创意工坊订阅该 item，正常启动游戏。
 
@@ -140,6 +140,11 @@ cd auto-brotato
   - `--arb-waveend=0`：关闭波末进化果紧迫度（meca/mutant fruit 在波末不自动吸走，默认按剩余
     波时把价值放大 1→4 倍）。
   - 精确 v2.4.0 控制臂：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0`。
+- v2.6.0 空间/机会开关（默认全开，=0 为精确回退）：
+  - `--arb-space=0`：关闭 open-floor 势场（380px 内向开阔地轻微收，防止被逐步挤到边缘）。
+  - `--arb-bounty=0`：关闭特殊目标赏金接近（精英/Boss、生成器蛋、诅咒/进化怪）与掉落怪价值提升。
+  - `--arb-boxes=0`：物品箱回到 2.5.0 的“只按回血定价”。
+  - 精确 v2.4.0 控制臂（7 开关）：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0 --arb-space=0 --arb-bounty=0 --arb-boxes=0`。
 - 若发现角色不动：先看 HUD 是否 `ON`；再确认 mod 是否被加载
   （`~/Library/Application Support/Brotato/logs/modloader.log` 里应有 `Pasha-AutoBattler`）。
 
@@ -395,7 +400,64 @@ killability 折减（目标价值下降）；伤害/速度变大 → 接触威�
 
 ---
 
+## 五点八、v2.6.0 空间规划 / 特殊目标（真实试玩后的第二轮反馈）
+
+玩家反馈（v2.5.0 试玩后）：“策略还是不喜欢攻击或收集特殊的怪物或者产出；而且仍旧缺乏规划，很容易被逼到地图边缘丧失操作空间。”
+
+### 1. 根因
+
+1. **被逼到边缘不是“合围”，是“空间被逐步吃掉”**：v2.5 的 breakout 只在“环状合围预测关闭”时触发；
+   单侧压力可以把 bot 从场地中央一步步推到墙带（每一步 0.8s 局部都对），而墙项
+   `W_WALL` 只在 220px 内超线性生效、`W_PREDICT` 默认关、pin escape 是事后触发。离线闭环仿真复现：
+   角落起手的环形局里，v2.5 默认臂 `edge_min` 一度到 37–59px；30s 后仍贴墙。
+2. **特殊怪物/特殊产出没有形成“目标”**：target 只对 `weapon_range+220px` 内的敌人可见，
+   1–2 屏外的精英/Boss/生成器蛋/诅咒进化怪根本进不了分；掉落怪价值只有 4（和一次普通击杀
+   同量级），物品箱只按回血 3/100→上限 12 定价，满血时几乎为 0。
+
+### 2. 实现（默认开启，逐项可回退）
+
+- **贴墙带撤离**（并入 `--arb-breakout`）：距最近墙 <150px 且 430px 内 ≥4 个身体时，用同一套
+  16 方向 × 1.6s 追击 rollout（墙计入）选“回开阔地”的路线，承诺 1.5s；与环状突围不同，
+  **不折价接触伤害**（只是撤退，不是硬挤），冷却 2s 防止与墙来回拉锯。
+- **open-floor 势场**（`--arb-space`，W=2.5，范围 380px）：在墙项够不到的距离上给一个
+  破平局量级的“向开阔地”梯度，阻止“每步局部正确”的漂移；不改变威胁/击杀优先级。
+- **赏金接近**（`--arb-bounty`）：附近 300px 无身体、HP>35% 时，对 900px 内带 special tag 的
+  target（1=Boss/精英，2=生成器蛋，3=诅咒/进化怪）按 `value/(1+dist/480)` 选一个，持续拉近到
+  0.9×武器射程交给正常开火；身体 <180px、HP<24.5% 或目标消失则放弃。world_view 同时把 special
+  写进 target 第 4 元素（`bounty=0` 时保持 3 元组 = 2.5.0 精确元组）。
+- **特殊产出定价**：物品箱/传说箱按 `max(回血价值, 5/10)`（`--arb-boxes=0` 回退）；掉落怪
+  `LOOT_VALUE 4→6`（`--arb-bounty=0` 回退），两者都进目标承诺层。
+
+### 3. 离线验证（合成闭环 + 真实 `arbiter.gd`）
+
+| 场景 | control（v2.4） | v2.6 默认 |
+|---|---|---|
+| corner_ring（角落起手 14 追击者） | edge_min 58.8，<100px 0.70s | edge_min 60.1，<100px 0.88s；寿命 30s |
+| soldier_herd（16 追击者 + 站桩 profile） | **7.8s 死亡** | **存活 30s**，edge_min 161 |
+| melee_herd（22 追击者近战） | **4.9s 死亡** | **存活 30s**，edge_min 200 |
+| ring20_walls | **5.7s 死亡** | **存活 30s**，edge_min 224 |
+| bullet_wall（单侧弹幕 + 8 追击者） | hp_min 40，edge_min 54.7 | **hp_min 80，edge_min 182** |
+| near_wall_ring | edge_min 154.9 | edge_min 194.7 |
+| 单帧探针（bounty 对 850px 外特殊目标） | 不接近 | 方向对齐 >0.95，且 120px 内有身体时拒绝接近 |
+| 贴墙 7 连 crowd 单帧探针 | 无 breakout | 触发 `reason=corner` 撤离 |
+
+> 尚未复现/未覆盖：真实游戏中“被更快的敌人追到墙角”的无解情形；bullet_wall 类复合压力下的
+> 长期表现；赏金/箱子在真机的实际收益。验收门禁 `_research/planning-v250/gate/` 19/19 PASS
+> （含 v2.6 的 E1–E3 探针），`planner-selftest` 292 checks PASS；真机 A/B 仍待跑。
+
+---
+
 ## 六、验证状态（诚实说明）
+
+### v2.6.0 离线验收（2026-11-06，第二轮）
+
+- 新增 v2.6 探针：`_research/planning-v250/gate/run.sh` → **`RESULT checks=19 fails=0 PASS`**
+  （A1/B1/B2/C 全绿 + E1–E3：赏金接近/近距离否决/贴墙撤离触发）。
+- `_research/planner-selftest/run.sh` → **`RESULT checks=292 fails=0 PASS`**（控制臂已加
+  `bounty=0, space=0`，新增 bounty/space 默认与 override 断言）。
+- 注意：门禁的 v2.4 参考实现已从 `git HEAD` 改为**固定 commit `751f3c3`**（v2.4.0）——
+  HEAD 在发布 v2.5.0/v2.6.0 后已不是 2.4.0 脚本，否则 C 等价检查会误报。
+- 真实游戏 A/B 仍需用户同意后跑（`_research/planning-v250/bench.md`）；候选/场景已更新为 7 开关控制臂。
 
 ### v2.5.0 离线验收（2026-11-06，合成闭环 + 真实 `arbiter.gd`）
 
@@ -553,9 +615,9 @@ auto-brotato/
 ├── README.md                    # 项目主页（简短宣传）
 ├── docs/TECHNICAL.md            # 本文件（详细技术文档）
 ├── install.sh                   # 安装/卸载（Steam 工坊注入 / 非 Steam mods 目录）
-├── build.sh                     # 构建 dist/AutoBattler-2.5.0-fork.zip
+├── build.sh                     # 构建 dist/AutoBattler-2.6.0-fork.zip
 ├── dist/
-│   └── AutoBattler-2.5.0-fork.zip
+│   └── AutoBattler-2.6.0-fork.zip
 ├── mod/                         # Mod 源码（zip 内容）
 │   ├── LICENSE                  # 上游 BOTato MIT 许可
 │   ├── README-FORK.md           # 随 zip 分发的说明
