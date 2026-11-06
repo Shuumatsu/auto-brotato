@@ -144,7 +144,7 @@ cd auto-brotato
   - `--arb-space=0`：关闭 open-floor 势场（380px 内向开阔地轻微收，防止被逐步挤到边缘）。
   - `--arb-bounty=0`：关闭特殊目标赏金接近（精英/Boss、生成器蛋、诅咒/进化怪）与掉落怪价值提升。
   - `--arb-boxes=0`：物品箱回到 2.5.0 的“只按回血定价”。
-  - 精确 v2.4.0 控制臂（7 开关）：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0 --arb-space=0 --arb-bounty=0 --arb-boxes=0`。
+  - 精确 v2.4.0 控制臂（8 开关）：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0 --arb-space=0 --arb-bounty=0 --arb-boxes=0`。
 - 若发现角色不动：先看 HUD 是否 `ON`；再确认 mod 是否被加载
   （`~/Library/Application Support/Brotato/logs/modloader.log` 里应有 `Pasha-AutoBattler`）。
 
@@ -457,7 +457,7 @@ killability 折减（目标价值下降）；伤害/速度变大 → 接触威�
   `bounty=0, space=0`，新增 bounty/space 默认与 override 断言）。
 - 注意：门禁的 v2.4 参考实现已从 `git HEAD` 改为**固定 commit `751f3c3`**（v2.4.0）——
   HEAD 在发布 v2.5.0/v2.6.0 后已不是 2.4.0 脚本，否则 C 等价检查会误报。
-- 真实游戏 A/B 仍需用户同意后跑（`_research/planning-v250/bench.md`）；候选/场景已更新为 7 开关控制臂。
+- 真实游戏 A/B 仍需用户同意后跑（`_research/planning-v250/bench.md`）；候选/场景已更新为 8 开关控制臂。
 
 ### v2.5.0 离线验收（2026-11-06，合成闭环 + 真实 `arbiter.gd`）
 

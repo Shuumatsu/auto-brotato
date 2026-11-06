@@ -216,7 +216,7 @@ python3 calibration/run_pilot.py --repeats 2 \
 设计/根因：`_research/planning-v250-design.md`；离线门禁：`_research/planning-v250/gate/`；
 真机 runbook：`_research/planning-v250/bench.md`。
 
-- 候选：`calibration/candidates_v250.json`（control = 7 个新开关全 0 = v2.4.0 精确行为；
+- 候选：`calibration/candidates_v250.json`（control = 8 个新开关全 0 = v2.4.0 精确行为；
   planning = 出厂默认；可选 no_breakout/no_goal 归因臂）。
 - 场景：`calibration/scenarios_v250.json`（D6 wave6 压力组 + D3 wave7 evolution_mult=20 物品组）。
 - 命令：
