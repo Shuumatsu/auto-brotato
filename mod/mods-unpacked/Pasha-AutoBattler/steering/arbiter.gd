@@ -556,6 +556,49 @@ const BOUNTY_HOLD = 60.0         # px: target moved this far -> re-acquire
 # --arb-roomtrack=0 restores the 2.6.0 frozen projection exactly (control arm).
 const ROOM_TRACK = 1.0           # --arb-roomtrack
 
+# -- v2.7.0: unified opportunity planner (--arb-opp) ----------------------
+# User report after v2.6.0: "special things still don't feel aggressive
+# enough". Offline probes showed the v2.6 bounty layer was fenced off by four
+# independent walls, and the fix is not a weight:
+#   (A) world_view only emitted targets inside target_reach (typical 620-680
+#       px), so --arb-bounty's 900 px range could never be used; fixed
+#       world_view-side (OPP_SPECIAL_RANGES) for SPECIAL bodies only;
+#   (B) a binary safety gate (BOUNTY_BODY_SAFE=300, GOAL_SAFE_R=320, abort
+#       <180/170) switched the layer OFF whenever anything was near -- i.e.
+#       through most of a real wave, exactly when a detour is a decision;
+#   (C) the pull was small next to a body's contact price and decayed with
+#       distance, so a far item/elite could never win an "awkward step";
+#   (D) special targets reused _kill_value (damage x killability), which for a
+#       thick boss/elite can be LOWER than a trash mob's -- the layer would not
+#       pick the very thing it was built for.
+# v2.7 replaces (B)(C)(D) with one risk-adjusted planner: an explicit value
+# table for special classes, route damage estimated from the SAME threat
+# model, and a commitment pull scaled by value. (A) stays in world_view.
+# --arb-agg is the risk dial: 0 = conservative (old safe-gate strict side),
+# 1 = default (may cross 1-2 ordinary bodies for a worthwhile target),
+# 2 = aggressive. --arb-opp=0 restores the exact v2.6.1 behaviour: legacy
+# _update_goal/_update_bounty, unscaled pulls, no target close-in candidate.
+const OPP_ENABLE = 1.0            # --arb-opp
+const OPP_AGG = 1.0               # --arb-agg: 0 conservative / 1 default / 2 aggressive
+const OPP_TARGET_MAX = 1700.0     # px: defensive cap (world_view gathers <= 1600)
+const OPP_TICKS = 100             # frames a commitment survives before re-acquisition
+const OPP_COOLDOWN = 15           # frames after a release before re-acquiring
+const OPP_ABORT_HP_FRAC = 0.7     # commitment drops below hp_floor * this
+const OPP_MARGIN = 1.0            # min (value - risk - travel cost) to commit, HP units
+const OPP_ETA_COST = 0.5          # HP-equivalent per second of travel in the score
+const OPP_RISK_CAP = 200.0        # sanity cap on the route-risk estimate
+const OPP_RISK_BASE = 0.10        # allowed risk = value*(base + per_agg*agg) + flat*agg
+const OPP_RISK_PER_AGG = 0.20
+const OPP_RISK_FLAT = 2.0
+const OPP_HP_FLOORS = [0.55, 0.35, 0.20]   # by agg round+clamp 0..2
+const OPP_PULL_BASE = 10.0        # target pull = clamp(base + per_value*value, min, max)
+const OPP_PULL_PER_VALUE = 0.6
+const OPP_PULL_MIN = 14.0
+const OPP_PULL_MAX = 34.0
+const OPP_GOAL_SCALE_MAX = 2.0    # reward pull multiplier cap: clamp(value/9, 1, max)
+const OPP_HOLD = 90.0             # px: a stored special target may move this far
+const OPP_RISK_TAPER = 60.0       # px beyond the hit radius where route risk fades out
+
 # -- v2.3.0: hit-adaptive alert --
 # A build that just took a big hit should behave more cautiously for a moment.
 # Online, cheap, and trivially switchable: compare hp_ratio with the previous
@@ -715,6 +758,28 @@ var last_bounty_dist = -1.0
 var last_goal = false
 var last_goal_dist = -1.0
 var last_goal_value = 0.0
+
+# v2.7.0 opportunity planner switches + commitment state (see the OPP_ block).
+# opp=0 leaves every legacy path untouched: _opp_on drives only the two new
+# pull guards and the new close-in candidate, and _update_opportunity is never
+# called (the legacy goal/bounty update path runs instead).
+var opp_enable = OPP_ENABLE
+var opp_agg = OPP_AGG
+var _opp_on = false
+var _opp_kind = ""               # "target" | "reward"
+var _opp_value = 0.0
+var _opp_risk = 0.0
+var _opp_ticks = 0
+var _opp_cooldown = 0
+var _opp_desired = 0.0
+var _opp_pull = BOUNTY_PULL
+var _opp_goal_scale = 1.0
+var _opp_src = Vector2.ZERO      # raw (current) position of the committed reward
+# numeric telemetry for gate/selftest probes
+var last_opp = false
+var last_opp_kind = ""
+var last_opp_value = 0.0
+var last_opp_risk = 0.0
 
 var pin_enable = 0.0             # --arb-pin=1 turns the escape mode on; default OFF
 var pin_threat = PIN_THREAT      # --arb-pinthreat
@@ -934,6 +999,10 @@ func apply_overrides(d: Dictionary) -> void:
 	if d.has("goalw"): w_goal = float(d["goalw"])
 	if d.has("walk"): walk_enable = float(d["walk"])
 	if d.has("pursuit"): pursuit_enable = float(d["pursuit"])
+	# v2.7.0 switches: opp=0 restores the exact v2.6.1 opportunity layer;
+	# agg is the risk dial (0..2) and only matters while opp is on.
+	if d.has("opp"): opp_enable = float(d["opp"])
+	if d.has("agg"): opp_agg = clamp(float(d["agg"]), 0.0, 2.0)
 	if not d.empty():
 		print("ARBITER weights: proj=%.2f contact=%.2f dash=%.2f aoe=%.2f latent=%.2f room=%.2f roomcap=%.0f wall=%.2f enclose=%.2f dps=%.2f pickup=%.2f hyst=%.2f lethality=%.2f horizon=%.2f pin=%.2f pinthreat=%.2f predict=%.2f predsecs=%.2f tangent=%.2f swerve=%.2f anchor=%.2f" % [
 			w_proj, w_contact, w_dash, w_aoe, w_latent, w_room, room_cap, w_wall,
@@ -946,6 +1015,7 @@ func apply_overrides(d: Dictionary) -> void:
 			breakout_enable, goal_enable, w_goal, walk_enable, pursuit_enable])
 		print("ARBITER v2.6.0: bounty=%.2f space=%.2f" % [bounty_enable, w_space])
 		print("ARBITER v2.6.1: roomtrack=%.2f" % [room_track])
+		print("ARBITER v2.7.0: opp=%.2f agg=%.2f" % [opp_enable, opp_agg])
 
 
 # Returns the chosen unit direction, or ZERO to stand still.
@@ -1064,15 +1134,36 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 	last_breakout_free_now = _breakout_free_now
 	last_breakout_free_fut = _breakout_free_fut
 	_goal_on = false
-	if goal_enable != 0.0 and not escaping and not _breakout_active:
-		_goal_on = _update_goal(p0, threats, rewards)
+	_bounty_on = false
+	_opp_on = false
+	last_opp = false
+	last_opp_kind = ""
+	last_opp_value = 0.0
+	last_opp_risk = 0.0
+	if opp_enable != 0.0:
+		# v2.7.0: ONE unified opportunity layer replaces the two separate
+		# committed layers. It still drives the same _goal_on/_bounty_on state
+		# (so every existing cost/close-in/telemetry reader keeps working) but
+		# chooses between special targets and high-value rewards on a
+		# value-minus-route-risk score instead of two binary safe windows.
+		if not escaping and not _breakout_active:
+			_opp_on = _update_opportunity(p0, speed, body_radius, mitigation,
+					threats, rewards, targets, weapon_range)
+		_opp_on = _opp_on and (_goal_on or _bounty_on)
+		last_opp = _opp_on
+		last_opp_kind = _opp_kind if _opp_on else ""
+		last_opp_value = _opp_value if _opp_on else 0.0
+		last_opp_risk = _opp_risk if _opp_on else 0.0
+	else:
+		# exact v2.6.1 legacy path (--arb-opp=0 control arm)
+		if goal_enable != 0.0 and not escaping and not _breakout_active:
+			_goal_on = _update_goal(p0, threats, rewards)
+		# v2.6.0: bounty approach -- one objective at a time, item goal first.
+		if bounty_enable != 0.0 and not escaping and not _breakout_active and not _goal_on:
+			_bounty_on = _update_bounty(p0, targets, threats, weapon_range)
 	last_goal = _goal_on
 	last_goal_dist = p0.distance_to(_goal_pos) if _goal_on else -1.0
 	last_goal_value = _goal_value if _goal_on else 0.0
-	# v2.6.0: bounty approach -- one objective at a time, item goal first.
-	_bounty_on = false
-	if bounty_enable != 0.0 and not escaping and not _breakout_active and not _goal_on:
-		_bounty_on = _update_bounty(p0, targets, threats, weapon_range)
 	last_bounty = _bounty_on
 	last_bounty_dist = p0.distance_to(_bounty_pos) if _bounty_on else -1.0
 
@@ -1182,6 +1273,29 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 			scores.push_back(gc)
 			if gc < best_cost:
 				best_cost = gc
+				best_i = cands.size() - 1
+
+	# -- v2.7.0: close-in candidate for a committed SPECIAL TARGET -----------
+	# The same action-space problem the goal candidate above solves: a target
+	# inside one horizon step (speed x 0.8 s) is overshot by every full-speed
+	# heading, so the value pull is only scored on moves that end PAST the
+	# desired firing range and the bot brakes early / stalls outside it. Offer
+	# one candidate at the exact speed that ends ON the desired range. Scoring
+	# window only; execution is still the full-speed frame (re-decided next
+	# frame), exactly the goal-candidate semantics.
+	if _opp_on and _bounty_on:
+		var tv = _bounty_pos - p0
+		var tdist = tv.length()
+		var want = max(_bounty_desired, 1.0)
+		if tdist > want and tdist - want < speed * horizon + 40.0:
+			var tdir = tv / tdist
+			var tspeed = clamp((tdist - want) / horizon, speed * 0.15, speed)
+			var tc = _cost(tdir, p0, tspeed, body_radius, far, rewards, targets,
+					chargers, weapon_range, prefers_still, current_hp)
+			cands.push_back(tdir)
+			scores.push_back(tc)
+			if tc < best_cost:
+				best_cost = tc
 				best_i = cands.size() - 1
 
 	# -- v2.3.0: 2-ply receding-horizon plan (see the PLAN_* block) --
@@ -1948,6 +2062,278 @@ func _nearest_special(targets: Array, at: Vector2, radius: float) -> float:
 	return -1.0 if best < 0.0 else sqrt(best)
 
 
+# =============================================================================
+# v2.7.0: unified opportunity planner (see the OPP_ block above)
+# =============================================================================
+
+# Tier index for the risk dial (round+clamp, so --arb-agg=1.4 reads the default
+# row and any out-of-range value lands on an end row).
+func _opp_agg_index() -> int:
+	return int(round(clamp(opp_agg, 0.0, 2.0)))
+
+
+func _opp_hp_floor() -> float:
+	return float(OPP_HP_FLOORS[_opp_agg_index()])
+
+
+# Explicit value table for the special-target classes (no _kill_value reuse:
+# a 1000 HP boss reads almost zero killability and would lose to a trash mob).
+# --arb-bounty still scales it, so bounty=0 disables special candidates.
+func _opp_special_value(special_class: int) -> float:
+	if special_class == 1:
+		return 30.0     # boss / elite
+	if special_class == 2:
+		return 40.0     # spawner egg: killing it stops all future spawns
+	if special_class == 3:
+		return 18.0     # cursed / evolved body (DLC payoff)
+	return 0.0
+
+
+# Estimated HP damage of walking the straight route p0 -> dest through the
+# CURRENT threat set: one closest-approach pass per threat (the same relative-
+# motion math _cost uses), tapered over OPP_RISK_TAPER beyond the hit radius.
+# A crude but honest "what does this detour cost" number for the acquisition
+# gate; the per-frame threat terms still dodge whatever this misses. Bodies
+# merely NEAR the route keep a partial price, so agg=0 only accepts an
+# effectively empty lane.
+func _opp_route_risk(p0: Vector2, dest: Vector2, threats: Array, speed: float,
+		body_radius: float, mitigation: float) -> float:
+	var to = dest - p0
+	var dist = to.length()
+	if dist < 1.0:
+		return 0.0
+	var own_v = to / dist * max(speed, 1.0)
+	var eta = dist / max(speed, 1.0)
+	var risk = 0.0
+	for t in threats:
+		var start = float(t[T_START])
+		var end = min(float(t[T_END]), eta)
+		if end <= start:
+			continue
+		var w = t[T_POS] - p0
+		var rel = t[T_VEL] - own_v
+		var tt = start
+		var denom = rel.length_squared()
+		if denom > 0.000001:
+			tt = clamp(- w.dot(rel) / denom, start, end)
+		var miss = (w + rel * tt).length()
+		var hit_r = float(t[T_RADIUS]) + body_radius
+		if miss >= hit_r + OPP_RISK_TAPER:
+			continue
+		var frac = clamp(1.0 - max(miss - hit_r, 0.0) / OPP_RISK_TAPER, 0.0, 1.0)
+		risk += float(t[T_DAMAGE]) * float(t[T_TICKS]) * mitigation * frac
+		if risk >= OPP_RISK_CAP:
+			return OPP_RISK_CAP
+	return risk
+
+
+# Where to AIM at a reward that may be moving. r[5] is world_view's measured
+# loot-alien velocity (optional 6th field; every older reward is static). Two
+# fixed-point iterations: eta depends on the predicted point, which depends on
+# eta. The speed is capped just under our own so a faster body cannot send the
+# aim to infinity -- the bot then chases it, the honest fallback.
+func _opp_aim_point(r: Array, p0: Vector2, speed: float) -> Vector2:
+	var pos = r[0]
+	if r.size() > 5 and typeof(r[5]) == TYPE_VECTOR2:
+		var vel = r[5]
+		if vel.length() > 0.001:
+			var vcap = max(speed * 0.95, 1.0)
+			if vel.length() > vcap:
+				vel = vel.normalized() * vcap
+			var eta = p0.distance_to(pos) / max(speed, 1.0)
+			for _i in range(2):
+				pos = r[0] + vel * eta
+				eta = p0.distance_to(pos) / max(speed, 1.0)
+	return pos
+
+
+# Find the reward currently at/near `at` (the stored source position) inside a
+# tolerance that grows with speed. Returns [] when the item is gone.
+func _opp_reward_near(rewards: Array, at: Vector2, speed: float) -> Array:
+	var found = []
+	var best_d = 1e18
+	var tol = max(OPP_HOLD, speed * 0.15)
+	for r in rewards:
+		if r.size() < 2:
+			continue
+		var d = r[0].distance_to(at)
+		if d < tol and d < best_d:
+			best_d = d
+			found = r
+	return found
+
+
+# A held reward (revive zone) is NOT an opportunity: the legacy mechanics own
+# it, and walking a detour for a zone you must stand in confuses both layers.
+func _opp_reward_held(r: Array) -> bool:
+	if r.size() > 3 and float(r[3]) > 0.0:
+		if not (r.size() > 4 and float(r[4]) > 0.0):
+			return true
+	return false
+
+
+# Position of the nearest tagged special target within `radius` of `at`
+# ([] when none remains). Targets are re-read every frame, so the stored
+# position is refreshed from the live tuple instead of chasing a ghost.
+func _opp_special_near(targets: Array, at: Vector2, radius: float) -> Array:
+	var found = []
+	var best_d = 1e18
+	var r_sq = radius * radius
+	for t in targets:
+		if t.size() < 4 or float(t[3]) <= 0.0:
+			continue
+		var dsq = t[0].distance_squared_to(at)
+		if dsq <= r_sq and dsq < best_d:
+			best_d = dsq
+			found = [t[0]]
+	return found
+
+
+func _opp_release() -> bool:
+	_opp_ticks = 0
+	_opp_cooldown = OPP_COOLDOWN
+	_opp_on = false
+	_goal_on = false
+	_bounty_on = false
+	return false
+
+
+# Arm / maintain / release the unified opportunity commitment. Returns true
+# while a useful non-trivial approach exists. Writes the SAME _goal_*/
+# _bounty_* state the legacy layers wrote (so cost/pull/close-in/telemetry are
+# shared) and adds the value/risk bookkeeping the new layer needs.
+func _update_opportunity(p0: Vector2, speed: float, body_radius: float,
+		mitigation: float, threats: Array, rewards: Array, targets: Array,
+		weapon_range: float) -> bool:
+	var desired_t = max(weapon_range * BOUNTY_DESIRE, 70.0)
+	var agg = float(_opp_agg_index())
+	# -- maintain an existing commitment --
+	if _opp_ticks > 0:
+		_opp_ticks -= 1
+		if _opp_kind == "target":
+			_bounty_desired = desired_t
+			var special = _opp_special_near(targets, _bounty_pos, OPP_HOLD)
+			if special.empty():
+				return _opp_release()
+			_bounty_pos = special[0]
+			var bd = p0.distance_to(_bounty_pos)
+			if bd <= desired_t + 20.0:
+				return _opp_release()      # inside firing range: normal terms take over
+			if _hp_ratio < _opp_hp_floor() * OPP_ABORT_HP_FRAC:
+				return _opp_release()
+			_opp_on = true
+			_goal_on = false
+			_bounty_on = true
+			return true
+		var r = _opp_reward_near(rewards, _opp_src, speed)
+		if r.empty():
+			return _opp_release()          # picked / despawned
+		_opp_src = r[0]
+		_goal_pos = _opp_aim_point(r, p0, speed)
+		if p0.distance_to(r[0]) < GOAL_DONE_R:
+			return _opp_release()          # arrived: the game collects this/next frame
+		if _hp_ratio < _opp_hp_floor() * OPP_ABORT_HP_FRAC:
+			return _opp_release()
+		_goal_value = float(r[1])
+		_goal_frac = clamp(_goal_value / 9.0, 0.5, 1.6)
+		_opp_goal_scale = clamp(_goal_value / 9.0, 1.0, OPP_GOAL_SCALE_MAX)
+		_opp_on = true
+		_goal_on = true
+		_bounty_on = false
+		return true
+	if _opp_cooldown > 0:
+		_opp_cooldown -= 1
+		return false
+	if _hp_ratio < _opp_hp_floor():
+		return false
+	# -- acquire: value table target OR high-value reward, risk-adjusted --
+	var best_score = OPP_MARGIN
+	var best_value = 0.0
+	var best_risk = 0.0
+	var best_pos = Vector2.ZERO
+	var best_src = Vector2.ZERO
+	var best_kind = ""
+	if bounty_enable != 0.0:
+		for t in targets:
+			if t.size() < 4 or float(t[3]) <= 0.0:
+				continue
+			var val = _opp_special_value(int(t[3])) * bounty_enable
+			if val <= 0.0:
+				continue
+			var d = p0.distance_to(t[0])
+			if d <= desired_t or d > OPP_TARGET_MAX:
+				continue
+			var risk = _opp_route_risk(p0, t[0], threats, speed, body_radius, mitigation)
+			if risk > val * (OPP_RISK_BASE + OPP_RISK_PER_AGG * agg) + OPP_RISK_FLAT * agg:
+				continue
+			var score = val - risk - OPP_ETA_COST * (d / max(speed, 1.0))
+			if score > best_score:
+				best_score = score
+				best_value = val
+				best_risk = risk
+				best_pos = t[0]
+				best_src = t[0]
+				best_kind = "target"
+	if goal_enable != 0.0:
+		for r in rewards:
+			if r.size() < 2:
+				continue
+			var rv = float(r[1])
+			if rv < GOAL_MIN_VALUE or _opp_reward_held(r):
+				continue
+			var aim = _opp_aim_point(r, p0, speed)
+			var d2 = p0.distance_to(aim)
+			# A fleeing prey legitimately leads the chase past the legacy item
+			# range (intercept time x its speed), so moving rewards get the
+			# special-target bound; static rewards keep the v2.5 GOAL_RANGE.
+			# If even the AIM is beyond the bound, fall back to the current
+			# position when that is still chaseable, else skip.
+			var moving = r.size() > 5 and typeof(r[5]) == TYPE_VECTOR2 \
+					and r[5].length() > 0.001
+			var rmax = OPP_TARGET_MAX if moving else GOAL_RANGE
+			if d2 > rmax:
+				aim = r[0]
+				d2 = p0.distance_to(aim)
+			if d2 > rmax or d2 < GOAL_DONE_R:
+				continue
+			var risk2 = _opp_route_risk(p0, aim, threats, speed, body_radius, mitigation)
+			if risk2 > rv * (OPP_RISK_BASE + OPP_RISK_PER_AGG * agg) + OPP_RISK_FLAT * agg:
+				continue
+			var score2 = rv - risk2 - OPP_ETA_COST * (d2 / max(speed, 1.0))
+			if score2 > best_score:
+				best_score = score2
+				best_value = rv
+				best_risk = risk2
+				best_pos = aim
+				best_src = r[0]
+				best_kind = "reward"
+	if best_kind == "":
+		return false
+	_opp_on = true
+	_opp_kind = best_kind
+	_opp_value = best_value
+	_opp_risk = best_risk
+	_opp_ticks = OPP_TICKS
+	_goal_on = false
+	_bounty_on = false
+	if best_kind == "target":
+		_opp_pull = clamp(OPP_PULL_BASE + OPP_PULL_PER_VALUE * best_value,
+				OPP_PULL_MIN, OPP_PULL_MAX)
+		_bounty_on = true
+		_bounty_pos = best_pos
+		_bounty_desired = desired_t
+		_opp_desired = desired_t
+	else:
+		_goal_on = true
+		_goal_pos = best_pos
+		_goal_value = best_value
+		_goal_frac = clamp(best_value / 9.0, 0.5, 1.6)
+		_opp_goal_scale = clamp(best_value / 9.0, 1.0, OPP_GOAL_SCALE_MAX)
+		_opp_src = best_src
+		_opp_desired = 0.0
+	return true
+
+
 # Arm / maintain / release the committed item goal (see the GOAL_* block).
 # The pull is a separate cost term in _cost, and this function only decides
 # WHICH reward deserves the commitment and WHEN to drop it: calm neighbourhood
@@ -2465,7 +2851,10 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 		var gd0 = p0.distance_to(_goal_pos)
 		var gd1 = p_end.distance_to(_goal_pos)
 		var gclosed = clamp((gd0 - gd1) / max(speed * horizon, 1.0), -1.0, 1.0)
-		total -= w_goal * _goal_frac * gclosed / (1.0 + gd0 / GOAL_FALLOFF)
+		# v2.7.0: the unified planner scales the committed pull by the reward's
+		# value (opp=0 keeps the exact v2.6.1 weight, _opp_on is false then).
+		var gscale = _opp_goal_scale if _opp_on else 1.0
+		total -= w_goal * _goal_frac * gscale * gclosed / (1.0 + gd0 / GOAL_FALLOFF)
 
 	# -- v2.6.0: bounty approach pull (see the BOUNTY_* block) --
 	# Direction-alignment reward toward the special target, ramped by how far
@@ -2478,7 +2867,10 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 		if bd > 1.0:
 			var align = d.dot(bv / bd)
 			var ramp = clamp((bd - _bounty_desired) / 320.0, 0.0, 1.0)
-			total -= BOUNTY_PULL * align * ramp
+			# v2.7.0: value-scaled pull for the unified planner; opp=0 keeps
+			# the exact v2.6.1 BOUNTY_PULL constant (_opp_on is false then).
+			var bpull = _opp_pull if _opp_on else BOUNTY_PULL
+			total -= bpull * align * ramp
 
 	# --- Character anchor ---
 	# Priced at the candidate's END position. Between the two radii every

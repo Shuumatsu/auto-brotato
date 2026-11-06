@@ -5,23 +5,24 @@ The character moves and dodges by itself during waves. [b]Every decision stays y
 [b]Controls[/b]
 [list]
 [*]Shift+Space — toggle the autopilot at any time (top-left HUD shows AUTOPILOT: ON/OFF)
-[*]It is ON by default; state is saved between sessions.
+[*]ON by default; state is saved between sessions.
 [/list]
 
 [b]What it does[/b]
 [list]
 [*]Dodges bullets, chargers, AoE telegraphs, spawn markers
+[*]Unified opportunity planning (v2.7.0): one value-vs-route-risk planner replaces the v2.6 bounty/goal gates -- explicit special-target values (boss/elite 30, spawner egg 40, cursed/evolved 18), detours priced against expected route damage; special targets gathered to 900/1400/1600 px by --arb-agg; fleeing loot aliens intercepted via measured velocity. Opt-outs: --arb-opp (0 = exact v2.6.1) / --arb-agg
 [*]Kites at weapon range, collects materials/food/trees, avoids walls/corners
-[*]Planning (v2.5.0): predicts an incoming encirclement and breaks out BEFORE the ring closes; commits to high-value pickups it would otherwise pass (DLC evolution fruits, hurt fruit, trees), including the ones that are lost at the wave horn
-[*]Contact fix (v2.6.1): the bot no longer drifts into a monster and orbits it in otherwise calm, sparse waves (chasing bodies are now projected as pursuers in the crowding terms instead of being extrapolated through you); a winding-up charger's frozen body is priced; elite/boss/DLC non-circle contact hitboxes can no longer be under-estimated. Opt-outs: --arb-roomtrack / --arb-windup / --arb-hitbox
-[*]Space & special targets (v2.6.0): retreats from the wall band before a crowd squeezes it shut and resists drifting to the edge; approaches special targets (bosses/elites, spawner eggs, cursed/evolved) when it is safe, prices item crates as items and loot aliens as worth a detour
-[*]DLC-aware (v2.4.0): engages cursed enemies (Abyssal Terrors) and evolved meca/mutant enemies (Primal Dread) by default, and walks over the Primal Dread evolution consumables (meca/mutant fruit, mutation fruit, meca parts). Both stances are adjustable — use a negative `--arb-curse` / `--arb-evolved` value to avoid them instead.
-[*]Behaviour priors are inferred from the build at runtime (HP/armor/dodge, lifesteal, "fire while moving", structures, economy mechanics) instead of a per-character lookup table
+[*]Planning (v2.5.0): breaks out of an encirclement BEFORE the ring closes and commits to high-value pickups it would otherwise pass (DLC evolution fruits, hurt fruit, trees), incl. ones lost at the wave horn
+[*]Contact fix (v2.6.1): no longer drifts into a monster and orbits it in calm, sparse waves (chasing bodies are projected as pursuers in the crowding terms, not extrapolated through you); winding-up charger bodies are priced; elite/boss/DLC non-circle hitboxes are never under-estimated. Opt-outs: --arb-roomtrack / --arb-windup / --arb-hitbox
+[*]Space & special targets (v2.6.0): retreats from the wall band before a crowd squeezes it shut, resists edge drift, approaches bosses/elites, spawner eggs and cursed/evolved targets when safe, prices item crates as items and loot aliens as worth a detour
+[*]DLC-aware (v2.4.0): engages cursed enemies (Abyssal Terrors) and evolved meca/mutant enemies (Primal Dread) by default, and walks over Primal Dread evolution consumables. Signed --arb-curse / --arb-evolved values tune the stance (negative = avoid).
+[*]Behaviour priors are inferred from the build at runtime (HP/armor/dodge, lifesteal, "fire while moving", structures, economy) instead of a per-character table
 [*]No shop or upgrade script extensions are installed — decisions are structurally untouched
 [/list]
 
 [b]Install (Steam)[/b]
-Subscribe, then start the game through Steam. ModLoader will load it from the Workshop folder. It needs nothing else (no ContentLoader, no Mod Options).
+Subscribe, then start the game through Steam; ModLoader loads it from the Workshop folder. No dependencies.
 
 [b]Notes / limits[/b]
 [list]
@@ -31,26 +32,27 @@ Subscribe, then start the game through Steam. ModLoader will load it from the Wo
 [/list]
 
 [b]Credits & license[/b]
-Steering/perception core is from [url=https://github.com/boardengineer/botato]BOTato[/url] by boardengineer / Pasha, MIT License (license included in the zip). This is a slim fork: auto-shop / auto-level-up / co-op helpers removed, adaptive build-trait profile added, defaults and HUD changed.
+Steering/perception core is from [url=https://github.com/boardengineer/botato]BOTato[/url] by boardengineer / Pasha, MIT License (included in the zip). This slim fork removes auto-shop / auto-level-up / co-op helpers, adds the adaptive build-trait profile, and changes defaults and HUD.
 
 [hr][/hr]
 
 [b]中文说明[/b]
 
-角色在波次内自动走位、闪避、砍树、受伤后吃果子、捡材料；[b]所有决策仍然由你来做[/b]：升级三选一、商店购买/刷新/锁定、开箱/消耗品、点"下一波"、角色/武器/难度选择。
+角色在波次内自动走位、闪避、砍树、受伤吃果子、捡材料；[b]所有决策仍由你来做[/b]：升级三选一、商店购买/刷新/锁定、开箱/消耗品、点"下一波"、角色/武器/难度。
 
-v2.6.1 贴身/碰撞修复：不再“场上没几只怪却贴着怪打转”——拥挤项改为追击投影（逃跑不再被算成更拥挤）；蓄力定身怪补上接触价；精英/Boss/DLC 非圆形碰撞体的接触距离不再低估。开关：--arb-roomtrack / --arb-windup / --arb-hitbox，全 0 可回退。
-v2.6.0 空间规划/特殊目标：不会被一点点挤到地图边缘（贴墙带提前撤离 + open-floor 势场），会主动接近精英/Boss、生成器蛋、诅咒/进化怪等特殊目标，物品箱按“一个物品”定价、逃跑掉落怪值得追。开关：--arb-space / --arb-bounty / --arb-boxes，全 0 可回退。
+v2.7.0 统一机会规划：v2.6 的“赏金接近 + 物品承诺”合并为“价值 − 路线风险”机会层——Boss/精英 30、蛋 40、诅咒/进化 18 显式定价，按“走过去要吃多少伤害”决定值不值得；特殊目标可见半径 900/1400/1600px（按 --arb-agg），逃跑掉落怪按实测速度拦截。开关：--arb-opp（=0 精确 v2.6.1）/ --arb-agg（0/1/2；13 开关全 0 回 2.4.0）。
+v2.6.1 贴身/碰撞修复：不再贴着怪打转——拥挤项改为追击投影；蓄力定身怪补上接触价；精英/Boss/DLC 非圆形碰撞体的接触距离不再低估。开关：--arb-roomtrack / --arb-windup / --arb-hitbox，全 0 可回退。
+v2.6.0 空间规划/特殊目标：不会被挤到地图边缘（贴墙带撤离 + open-floor 势场），会主动接近精英/Boss、蛋、诅咒/进化怪，物品箱按物品定价、掉落怪值得追。开关：--arb-space / --arb-bounty / --arb-boxes，全 0 可回退。
 
-v2.5.0 规划能力：会预测“马上要被包围”（按追击者会转向、1.8s 后的合围空缺）并在环合上之前主动突围；会给高价值物品（DLC 进化果/受伤果子/树）做目标承诺，而不是只吃路过的；修好了“走到进化物品旁却不捡/停在圈边不消费”的拾取语义，并给波末会消失的机械/异变果实加拾取紧迫度。开关：--arb-breakout / --arb-goal / --arb-pursuit / --arb-walk / --arb-waveend，全 0 精确回到 2.4.0 行为。
+v2.5.0 规划能力：会预测“马上要被包围”并在环合上之前主动突围；给高价值物品（DLC 进化果/受伤果子/树）做目标承诺；修好“走到进化物品旁却不捡”的拾取语义，并给波末会消失的机械/异变果实加紧迫度。开关：--arb-breakout / --arb-goal / --arb-pursuit / --arb-walk / --arb-waveend，全 0 回 2.4.0。
 
-v2.4.0 DLC 适配：默认主动交战诅咒怪（DLC1）和机械/异变进化怪（DLC2），并主动走过去捡新 DLC 的进化物品（机械果实/异变果/异变基因/机械部件）；不想打的时候用负数开关（如 --arb-curse=-1）进入回避姿态。开关全 0 可精确回到 2.3.0 行为。
+v2.4.0 DLC 适配：默认主动交战诅咒怪（DLC1）和机械/异变进化怪（DLC2），并主动捡新 DLC 的进化物品；不想打的时候用负数开关（如 --arb-curse=-1）进入回避姿态。开关全 0 精确回到 2.3.0。
 
-v2.3.0 策略升级：远程 build 保持在射程边缘风筝而不是贴脸；静场会去砍树、掉血会去吃果子；每帧不再是单步贪心，而是 2 步前瞻规划；受击后 2 秒内临时提高警戒。所有新行为都有精确回退开关。
+v2.3.0 策略升级：远程 build 保持射程边缘风筝而不是贴脸；静场会砍树、掉血会吃果子；2 步前瞻规划；受击后 2 秒临时提高警戒。所有新行为都有精确回退开关。
 
 控制：Shift+Space 随时开关（默认开启，左上角 HUD 显示状态，开关会保存）。
 
-本 Mod 只装了"走位"相关的两个最小扩展，不装任何商店/升级扩展；角色行为参数从实时 build 数据（血量/护甲/闪避、吸血、能否移动射击、结构物、经济机制等）自动推导，不再依赖逐角色手写表。
+本 Mod 只装了“走位”相关的两个最小扩展，不装任何商店/升级扩展；角色参数从实时 build 数据（血量/护甲/闪避、吸血、移动射击、结构物、经济等）自动推导。
 
 已在 Brotato 1.2.0.1 单机实测（第 1 波）。联机未验证；游戏更新可能失效，退订即恢复原版。
 
@@ -59,11 +61,12 @@ v2.3.0 策略升级：远程 build 保持在射程边缘风筝而不是贴脸；
 
 [b]Changelog[/b]
 [list]
-[*]2.6.1 — contact fix: crowded-terms now project chasers as pursuers (so fleeing a chaser is no longer priced as more crowded than orbiting it), the frozen body of a winding-up charger is priced, and elite/boss/DLC non-circle contact hitboxes are never under-estimated. Opt-outs: --arb-roomtrack / --arb-windup / --arb-hitbox.
-[*]2.6.0 — space & opportunities: wall-band retreat (same pursuit rollout, no contact discount) plus a weak open-floor potential against gradual edge drift; bounty approach toward special targets (boss/elite, spawner egg, cursed/evolved) inside a safety window; item crates priced as item choices, loot aliens worth chasing. Opt-outs: --arb-space / --arb-bounty / --arb-boxes.
-[*]2.5.0 — planning: pre-emptive breakout from a closing encirclement (forecasts the ring 1.8 s ahead with pursuing bodies and commits to a pursuit-rollout escape line; contact is discounted during the run, bullets/dashes/AOE stay full price); committed high-value item goals with a value/ETA choice and a close-in candidate; one-shot walk-on pickup semantics for the DLC evolution consumables (the v2.4 rim was misread as a held revive zone, so the bot parked on it); end-of-wave urgency for meca/mutant fruits (x1..x4); pursuit-aware second ply. Exact v2.4 control arm: --arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0.
-[*]2.4.0 — DLC-aware movement: engages cursed enemies (curse stat) and evolved meca/mutant enemies by default, with signed adjustable stance flags (--arb-curse / --arb-evolved; negative = avoid); collects the Primal Dread evolution consumables by walking over them (--arb-evo, 0 = old behaviour); non-healing consumables are no longer priced as food (poisoned fruit is avoided).
-[*]2.3.0 — smarter movement: ranged standoff/kiting, tree-felling and hurt-fruit opportunity terms, 2-ply lookahead planner, hit-adaptive caution; all with exact opt-out flags (--arb-kite / --arb-tree / --arb-food / --arb-plan / --arb-adapt).
-[*]2.2.2 — adaptive behaviour profile now also infers economy/food/tree mechanics; local tuning hook (user://auto-battler-overrides.json); docs.
+[*]2.7.0 — unified opportunity planning: one value-vs-route-risk planner replaces the v2.6 bounty/goal gates -- explicit special-target values (boss/elite 30, spawner egg 40, cursed/evolved 18 x --arb-bounty), route damage from the same threat model (allowed risk = value*(0.10+0.20*agg)+2*agg, HP floors 0.55/0.35/0.20), 100-frame commitment, value-scaled pull, close-in candidate; special targets gathered to 900/1400/1600 px by --arb-agg; fleeing loot aliens valued 8 and intercepted via measured velocity. Opt-outs: --arb-opp (0 = exact v2.6.1) / --arb-agg; all 13 switches at 0 = exact v2.4.0.
+[*]2.6.1 — contact fix: crowded terms project chasers as pursuers (fleeing is no longer priced as MORE crowded than orbiting), winding-up bodies are priced, elite/boss/DLC non-circle hitboxes are never under-estimated. Opt-outs: --arb-roomtrack / --arb-windup / --arb-hitbox.
+[*]2.6.0 — space & opportunities: wall-band retreat plus a weak open-floor potential against edge drift; bounty approach toward special targets (boss/elite, spawner egg, cursed/evolved) inside a safety window; item crates priced as items, loot aliens worth chasing. Opt-outs: --arb-space / --arb-bounty / --arb-boxes.
+[*]2.5.0 — planning: pre-emptive breakout from a closing encirclement (pursuit-rollout escape line; contact discounted, bullets/dashes/AOE full price); committed high-value item goals with a close-in candidate; one-shot walk-on pickup for DLC evolution consumables; end-of-wave urgency for meca/mutant fruits; pursuit-aware second ply. Exact v2.4 control arm: all five v2.5 switches at 0.
+[*]2.4.0 — DLC-aware movement: engages cursed / evolved meca-mutant enemies by default (signed --arb-curse / --arb-evolved; negative = avoid); walks over Primal Dread evolution consumables (--arb-evo, 0 = old); non-healing consumables no longer priced as food.
+[*]2.3.0 — smarter movement: ranged standoff/kiting, tree-felling and hurt-fruit terms, 2-ply lookahead planner, hit-adaptive caution; exact opt-out flags (--arb-kite / --arb-tree / --arb-food / --arb-plan / --arb-adapt).
+[*]2.2.2 — adaptive profile also infers economy/food/tree mechanics; local tuning hook (user://auto-battler-overrides.json).
 [*]2.2.1 — first public build.
 [/list]

@@ -8,17 +8,37 @@
         "pursuit": 0,
         "walk": 0,
         "waveend": 0,
-        "bounty": 0,
         "space": 0,
+        "bounty": 0,
         "boxes": 0,
         "roomtrack": 0,
         "windup": 0,
-        "hitbox": 0
+        "hitbox": 0,
+        "opp": 0,
+        "agg": 0
       }
     },
     {
       "name": "planning",
       "overrides": {}
+    },
+    {
+      "name": "no_opp",
+      "overrides": {
+        "opp": 0
+      }
+    },
+    {
+      "name": "agg0",
+      "overrides": {
+        "agg": 0
+      }
+    },
+    {
+      "name": "agg2",
+      "overrides": {
+        "agg": 2
+      }
     },
     {
       "name": "no_roomtrack",
@@ -39,5 +59,5 @@
       }
     }
   ],
-  "note": "v2.6.1 planning/contact A/B. control = exact v2.4.0 behaviour (all ELEVEN switches 0: breakout/goal/pursuit/walk/waveend/space/bounty/boxes + roomtrack/windup/hitbox). planning = shipped v2.6.1 defaults. Optional attribution arms: no_breakout {breakout:0}, no_goal {goal:0}, no_space {space:0}, no_bounty {bounty:0}, no_boxes {boxes:0}, no_roomtrack {roomtrack:0}, no_windup {windup:0}, no_hitbox {hitbox:0}. Older builds ignore unknown keys, so a 2.5.0/2.4.0 zip can serve as an external control (it will simply ignore the new keys)."
+  "note": "v2.7.0 unified-opportunity A/B. control = exact v2.4.0 behaviour (all THIRTEEN switches 0: breakout/goal/pursuit/walk/waveend + space/bounty/boxes + roomtrack/windup/hitbox + opp/agg; agg is inert while opp=0). planning = shipped v2.7.0 defaults (empty overrides). Attribution arms: no_opp {opp:0} = exact v2.6.1, agg0 {agg:0} / agg2 {agg:2} = risk dial, no_roomtrack/no_windup/no_hitbox = v2.6.1 contact fixes. Older builds ignore unknown keys, so a 2.6.1/2.6.0/2.5.0/2.4.0 zip can serve as an external control (it will simply ignore the new keys)."
 }

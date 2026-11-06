@@ -211,24 +211,31 @@ python3 calibration/run_pilot.py --repeats 2 \
 4. 注入目标是别人的工坊 item：`cleanup_test_mods()` 现在也会删掉注入进去的 `AutoBattler-*.zip`，
    恢复时把原 item 内容放回。
 
-## v2.5.0 规划层 A/B（真机，待跑）
+## v2.5.0 / v2.7.0 规划层 A/B（真机，待跑）
 
-设计/根因：`_research/planning-v250-design.md`；离线门禁：`_research/planning-v250/gate/`；
-真机 runbook：`_research/planning-v250/bench.md`。
+设计/根因：v2.5 = `_research/planning-v250-design.md`，v2.7 = `_research/planning-v270-design.md`；
+离线门禁：`_research/planning-v250/gate/`（v2.7 → 27/27 PASS）；真机 runbook：
+`_research/planning-v250/bench.md`。
 
-- 候选：`calibration/candidates_v250.json`（control = 8 个新开关全 0 = v2.4.0 精确行为；
-  planning = 出厂默认；可选 no_breakout/no_goal 归因臂）。
-- 场景：`calibration/scenarios_v250.json`（D6 wave6 压力组 + D3 wave7 evolution_mult=20 物品组）。
+- 候选：`calibration/candidates_v250.json`（v2.7.0 起）：
+  - `control` = **13 个新开关全 0** = v2.4.0 精确行为（v2.5 5 + v2.6 3 + v2.6.1 3 + v2.7 2；
+    `agg` 在 `opp=0` 下不生效，写 0 只为完整列出）；
+  - `planning` = v2.7 出厂默认（空 overrides）；
+  - 归因臂：`no_opp`（`opp=0` = 精确 v2.6.1）、`agg0` / `agg2`（`--arb-agg` 风险档 0/2）、
+    `no_roomtrack` / `no_windup` / `no_hitbox`（v2.6.1 三个接触修复）。
+- 场景：`calibration/scenarios_v250.json`（D6 wave6 压力组 + D3 wave7 evolution_mult=20 物品组，
+  v2.7 沿用）。
 - 命令：
   ```bash
   python3 calibration/run_pilot.py --repeats 3 \
-    --build dist/AutoBattler-2.5.0-fork.zip \
+    --build dist/AutoBattler-2.7.0-fork.zip \
     --scenarios calibration/scenarios_v250.json \
     --candidates calibration/candidates_v250.json \
-    --out calibration/results_v250.csv
-  python3 _research/planning-v250/summarize_v250.py \
-    --glob 'calibration/logs/*_v250*.log' --csv-out _research/planning-v250/results_v250.csv
+    --out calibration/results_v270.csv
   ```
-- 指标：压力组看存活/清波/min_hp + harness 新遥测 `breakouts=`（0 说明功能没触发，不代表没收益）；
-  物品组看 `evo_picked` / `goals=` / `goal_d=`。小样本（2 臂 × 4 场景 × 3 repeats = 24 局，
-  约 15–18 分钟）只作方向性判断。
+- 指标：压力组看存活/清波/min_hp（`planning` vs `no_opp` 应无显著退化；`agg0`/`agg2` 看风险档
+  差异）；物品组看 `evo_picked` / `goals=` / `goal_d=`。注意 harness 现有遥测没有机会层字段
+  —— 机会层是否真的启用看启动日志 `ARBITER v2.7.0: opp=... agg=...`，行为效果用上述指标间接判断
+  （若需要逐秒 `opp=` 遥测，要先改 `_research/harness-mod/`，不随 Mod 发布）。
+- 小样本：8 臂 × 4 场景 × 3 repeats = 96 局，整轮较长；建议先跑 `planning` vs `no_opp` 两臂
+  （24 局，约 15–18 分钟）看总体，再对 `agg0`/`agg2` 做定向对比。

@@ -44,10 +44,11 @@ Brotato 的玩法决定了自动操作其实**只需要接管移动**：武器�
 
 ## 二、安装（Steam / macOS）
 
-> **当前状态（2026-11 实测后）**：本 Mod 已安装到你的游戏里：
+> **当前状态（2026-11 实测后）**：本 Mod 的 2.6.1 版本已安装到你的游戏里：
 > `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.6.1-fork.zip`
 > （借用了 Mod Options 的工坊 item 目录）。测试用的 harness 已删除，其它 8 个 Mod 已恢复，
-> 测试前的 run 存档已还原。启动游戏即可生效；卸载/重装用 `./install.sh`。
+> 测试前的 run 存档已还原。启动游戏即可生效；卸载/重装用 `./install.sh`（2.7.0 用同一方式：
+> `./build.sh && ./install.sh` 会按 manifest 版本覆盖为 `AutoBattler-2.7.0-fork.zip`）。
 
 ### 方法 A：本地注入（最快，可逆；脚本自动）★ 先用这个试
 
@@ -59,7 +60,7 @@ cd auto-brotato
 脚本会：
 1. 自动定位 Brotato 安装目录；
 2. 找到你已安装的创意工坊 mod 目录（默认挑第一个，例如 Mod Options 的 `3598984651`）；
-3. 把构建好的 `dist/AutoBattler-2.6.1-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
+3. 把构建好的 `dist/AutoBattler-2.7.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
 
 然后**从 Steam 启动 Brotato**即可。
 
@@ -78,7 +79,7 @@ cd auto-brotato
 
 1. 启动 Steam（需登录拥有 Brotato 的账号）；
 2. 打开 `<Brotato>/GodotWorkshopUtility.app`；
-3. 选择 `dist/AutoBattler-2.6.1-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
+3. 选择 `dist/AutoBattler-2.7.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
    （可见性选"私有/不公开"也可以，自己订阅即可）；
 4. 上传后在 Steam 创意工坊订阅该 item，正常启动游戏。
 
@@ -139,12 +140,28 @@ cd auto-brotato
   - `--arb-walk=0`：关闭 walk-on 拾取语义（回到 v2.4.0 的 held-rim 读法，仅用于 A/B 对照）。
   - `--arb-waveend=0`：关闭波末进化果紧迫度（meca/mutant fruit 在波末不自动吸走，默认按剩余
     波时把价值放大 1→4 倍）。
-  - 精确 v2.4.0 控制臂：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0`。
+  - 精确 v2.4.0 控制臂（此处仅列 v2.5 的 5 个开关；v2.6.1/v2.7 之后的完整控制臂见下）：
+    `--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0`。
 - v2.6.0 空间/机会开关（默认全开，=0 为精确回退）：
   - `--arb-space=0`：关闭 open-floor 势场（380px 内向开阔地轻微收，防止被逐步挤到边缘）。
   - `--arb-bounty=0`：关闭特殊目标赏金接近（精英/Boss、生成器蛋、诅咒/进化怪）与掉落怪价值提升。
   - `--arb-boxes=0`：物品箱回到 2.5.0 的“只按回血定价”。
-  - 精确 v2.4.0 控制臂（8 开关）：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0 --arb-space=0 --arb-bounty=0 --arb-boxes=0`。
+  - （v2.6.1/v2.7 之后的完整 v2.4.0 控制臂是 **13 个开关全 0**，见下方 v2.7.0 条目。）
+- v2.6.1 接触/碰撞开关（默认全开，=0 为精确回退）：
+  - `--arb-roomtrack=0`：拥挤项（`room`/`roomfar`）回到 2.6.0 的“冻结速度直线投影”。
+  - `--arb-windup=0`：蓄力定身怪的身体不再补一次性接触价。
+  - `--arb-hitbox=0`：接触距离回到只用 Hurtbox 半径（非圆形 -> fallback 20px）。
+- v2.7.0 统一机会层开关（默认开）：
+  - `--arb-opp=<0|1>`（默认 `1`）：统一机会规划总开关。`0` = **精确 v2.6.1 行为**：
+    arbiter 走旧 `_update_goal`/`_update_bounty`，world_view 回到旧 target 可见半径、
+    旧 reward 元组与旧 special tag 条件。
+  - `--arb-agg=<0|1|2>`（默认 `1`，读取时 clamp 0–2）：风险接受档位 —— `0` 保守
+    （≈旧二元安全门的严格侧）、`1` 默认、`2` 激进；同时决定特殊目标的可见半径
+    （900/1400/1600px）与 HP 地板（0.55/0.35/0.20）。只在 `--arb-opp=1` 时有意义。
+  - **精确 v2.4.0 控制臂（13 个开关全 0）**：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0
+    --arb-walk=0 --arb-waveend=0 --arb-space=0 --arb-bounty=0 --arb-boxes=0
+    --arb-roomtrack=0 --arb-windup=0 --arb-hitbox=0 --arb-opp=0 --arb-agg=0`
+    （v2.5 5 个 + v2.6 3 个 + v2.6.1 3 个 + v2.7 2 个；`agg` 在 `opp=0` 下不参与计算）。
 - 若发现角色不动：先看 HUD 是否 `ON`；再确认 mod 是否被加载
   （`~/Library/Application Support/Brotato/logs/modloader.log` 里应有 `Pasha-AutoBattler`）。
 
@@ -515,7 +532,148 @@ killability 折减（目标价值下降）；伤害/速度变大 → 接触威�
 
 ---
 
+## 五点十、v2.7.0 统一机会规划（第四轮试玩反馈）
+
+玩家反馈（v2.6.1 试玩后）：“特殊的东西还是感觉不够激进”——v2.6 明明有赏金接近/物品承诺，
+实战里却很少看到 bot 去处理精英/Boss、生成器蛋和特殊产出。本版把 v2.6 的“赏金接近 + 物品
+目标承诺”两层合并成一个**价值 − 路线风险**的机会规划器，并修掉 world_view 侧的可见性天花板。
+
+### 1. 根因：v2.6 机会层被四道独立栅栏关掉
+
+单帧探针（真实 arbiter，weapon_range 300，`_research/planning-v250/sim/README.md` §1）复现：
+最近身体 300px 时 bounty 才 armed，170/220px 一律不 armed；goal 要 320px 才 armed；
+1000/1200px 的特殊目标从未 armed。而且两条门都是**方向无关**的：身体在路线旁边 300px 与
+站在路线上 300px 一视同仁，170px 的身体无论目标多远都一票否决。
+
+1. **可见性（A）**：world_view 的 target 半径 = `max(THREAT_RANGE, weapon_range + TARGET_EXTRA)`
+   （典型 620–680px）；`--arb-bounty` 承诺 900px 内的特殊目标，但更远的目标根本不会出现在
+   targets 里 —— 承诺范围形同虚设。
+2. **二元安全门（B）**：`BOUNTY_BODY_SAFE=300`（附近 300px 有身体就不接）、goal
+   `GOAL_SAFE_R=320`、放弃阈值 180/170px。真实波次里几乎每帧都有身体在 300px 内，
+   于是“机会层”实际长期处于关闭状态。
+3. **拉力（C）**：旧拉力按 `value/(1+dist/480)` 量级且随距离衰减，争不过一只怪 10–40 的
+   接触价；目标在 1–2 个 horizon 步外时，任何绕路的第一步都“不划算”。
+4. **价值（D）**：特殊目标沿用 `_kill_value`（输出 × killability）；厚血 Boss/精英的
+   killability 折减后目标价值可能低于杂兵 —— 层本身想追的东西反而排不上号。
+
+### 2. 实现（默认开启，两个开关均可精确回退）
+
+- **world_view（修 A + 掉落怪）**：
+  - 特殊目标可见半径 `OPP_SPECIAL_RANGES = [900, 1400, 1600]px`（按 `--arb-agg` 取整
+    clamp 0..2），只保留最近的 `OPP_SPECIAL_MAX=8` 个 special；legacy 半径内的行为不变，
+    非 special target 不受影响。
+  - special tag 发送条件从 `bounty_tag != 0` 放宽为 `bounty_tag != 0 or opp_enable != 0`
+    （机会层需要 `t[3]` 分类）；`opp=0` 时条件、半径、元组与 v2.6.1 逐字节一致。
+  - 掉落怪（loot alien）：维护 `instance_id -> [pos, ticks_ms]` 速度缓存（每帧清理已消失的），
+    有效时把 reward 扩成 6 元组（第 6 项为实测速度），默认价值 `OPP_LOOT_VALUE=8`
+    （row 自带 `loot_value` 优先，Pacifist 的 0 仍为 0）；`opp=0` 仍发旧 2 元组。
+- **arbiter（替换 B/C/D）**：`opp_enable=1` 时用 `_update_opportunity()` 取代 legacy
+  `_update_goal`/`_update_bounty`（选中后仍写回 `_goal_*`/`_bounty_*`，下游 cost/pull/
+  close-in/telemetry 复用）：
+  - **价值表**：class 1 Boss/精英 = 30、class 2 生成器蛋 = 40、class 3 诅咒/进化 = 18，
+    乘以 `--arb-bounty`（=0 时无 special 候选）。
+  - **路线风险**：沿 p0→dest 直线、按每个 threat 的相对速度求最近接近，估计
+    `risk += dmg × T_TICKS × mitigation × frac`（越接近命中半径 `frac` 越大，超出 60px 渐隐，
+    cap 200）。`allowed = value × (0.10 + 0.20×agg) + 2×agg`，`risk <= allowed` 才承诺；
+    评分 `score = value − risk − 0.5×eta`，最高分且 >1 才承诺。
+  - **档位**：HP 地板 `[0.55, 0.35, 0.20][agg]`（低于地板不 acquire；承诺中低于
+    地板×0.7 释放）；承诺 `OPP_TICKS=100` 帧，释放后 15 帧冷却。
+  - **拉力**：target `clamp(10 + 0.6×value, 14, 34)`（value30 → 28）；reward
+    `_opp_goal_scale = clamp(value/9, 1, 2)`（1–2 倍）。
+  - **close-in 候选**：承诺 target 且距离落在 `desired < d < speed×horizon + desired + 40`
+    时，额外评一个方向朝目标、速度 `clamp((d-desired)/horizon, 0.15×speed, speed)` 的
+    分段速度候选（只改评分窗口，执行仍全速；沿用 v2.5 “land on the item”的语义）。
+  - 遥测：`last_opp / last_opp_kind / last_opp_value / last_opp_risk`（门禁/selftest 用）；
+    `apply_overrides()` 增加 `opp`/`agg`，并打印 `ARBITER v2.7.0: opp=... agg=...`、
+    `WORLDVIEW opp_enable=... / opp_agg=...`（`--arb-opp=0` 回退时也打印，便于 A/B 核对）。
+- **开关语义**：`--arb-opp=0` 走旧 `_update_goal` / `_update_bounty`，一行不差；此时
+  `--arb-agg` 不生效。`opp=0` 时 `bounty=0`/`goal=0` 的旧语义与 v2.6.1 完全一致。
+- 控制臂：**13 个开关全 0 = v2.4.0 精确行为**（v2.5 5 + v2.6 3 + v2.6.1 3 + v2.7 2；
+  完整列表见 §三）。`--arb-agg=0` 在 `--arb-opp=0` 下不参与任何计算。
+
+> 本轮源码冻结值（供复现）：`arbiter.gd` sha256 `402c37e1…`、`world_view.gd` sha256 `70d56707…`；
+> v2.6.1 基线 = commit `dcb6e39`。
+
+### 3. 离线验证（真实 `arbiter.gd` / `world_view.gd`，无游戏）
+
+| 判据 | v2.6.1（对照） | v2.7.0（默认） | 结果 |
+|---|---|---|---|
+| `planner-selftest`（逐函数/契约） | 294 checks（v2.6.1 当时） | **355 checks / 0 fails** | 新增 61 条，含 38 条 `opp=0` vs 冻结 v2.6.1 逐值一致断言 |
+| 离线门禁 `gate/run.sh` | — | **27 checks / 0 fails** | A1/B1/B2/C/D 不退化，新增 F1/F2/E2b/E2c |
+| F1：250px 身体挡路 + 800px value-30 special | target_min 800.0px，从不靠近 | **target_min 185.2px，1.67s 进入 274px 射程边缘** | 默认承诺接近（路线风险 9.6 ≤ 允许 11）；agg=0/control 保持 800px |
+| F2：5 只 200px 合围 + 700px value-30 special | alive 25s，hp_min 94.0，nearest 8.6px | alive 25s，hp_min 94.0，nearest 27.7px，contact 0.20s | 存活/血量不退化，默认不把自己送进合围中心 |
+| E2b：身体正挡路（路线风险 38.4 > 允许 11） | 不承诺（二元门） | 不承诺（agg=0 同样拒绝） | PASS |
+| E2c：身体在路线旁 120px（v2.6 一票否决） | 被 veto | 允许承诺（value 30 > 侧身风险） | 有意放宽二元门的直接证据 |
+| 测试先行（同一版门禁跑冻结 v2.6.1） | **`checks=27 fails=2`**（恰好 F1-default + E2c；target_min 800、无 `last_opp` 遥测） | — | 证明新用例测的是新能力，不是恒真 |
+| 门禁 D（A1/A2 决策耗时 dev/control） | — | **1.25× / 1.13×** | <=2.5× 目标内 |
+| world_view 单帧探针（Lead） | `opp=0` 时 targets/threats/rewards 与冻结 HEAD 逐值一致 | **20/20 PASS** | special 半径 900/1400/1600 + 最多 8 个；loot 6 元组含速度/价值 8 |
+| arbiter 单帧探针（Lead） | — | **12/12 PASS** | 含 rich-world `choose()` ≈**1.30×**（2510us vs 1928us；≤2.5× 目标内） |
+
+#### 闭环 sim（`_research/planning-v250/sim/`，确定性 60Hz 合成世界）
+
+S1/S2：特殊目标在 800px、路线上有 1/2 个静止身体（真实武器射程 260px，进入
+`max(weapon_range×0.9, 70) + 40 = 274px` 记一次 reach，20s 场景）：
+
+| 场景 | v2.6.1 / `opp=0` | agg=0 | v2.7 默认（agg=1） |
+|---|---|---|---|
+| S1 value-30 special + 1 个静止 dmg-6 身体 250px 挡路 | 从不进入，min 800.0px | min 800.0px | **1.77s 进入射程，min 224.4px**（hp 100，0 接触） |
+| S2 value-40 special + 2 个静止 dmg-3 身体 250/500px 挡路 | 从不进入，min 800.0px | min 800.0px | **1.78s 进入射程，min 39.0px** |
+
+S3/F3：600px 外价值 8 的掉落怪以 120px/s 逃跑（撞墙后停；追击闭环）：
+
+| 策略 | 抓到时间 | 承诺时长 | 说明 |
+|---|---|---|---|
+| v2.6.1 / `opp=0` | **11.3s** | 4.02s | 只会在掉落怪撞墙后追上；中途反复丢承诺 |
+| v2.7 默认 / agg=0/2 | **2.8s** | 2.85s | **4.04×** 更快；6 元组速度 + 2 次不动点拦截瞄准 |
+
+> 注：sim 给两个臂都喂了 value 8 + 第 6 项速度（v2.6.1 忽略第 6 项），所以 11.3s 已经是对
+> v2.6.1 偏有利的对照——真机里 v2.6 的掉落怪价值是 4 且无速度字段。因此不对真机提升做
+> 超过 **4.04×** 的推断。
+
+无退化（14 个既有闭环场景，`opp=0` vs 默认）：`opp=0` 的每一行与冻结 v2.6.1 **逐字段一致**；
+默认臂在 ring10/ring14/ring16/ring20/crossfire/soldier_herd/melee_herd/bullet_wall/
+item_far_safe/item_far_1slow 行级一致；只出现三处微差：`item_far_ring8` nearest_end
+352.4→364.8px、`item_lull` 拾取 2.3→2.1s、`bounty_egg/cursed` sp_reach 1.13→1.03/1.02s
+—— 均无 alive / hp_min / edge 退化。（`soldier_herd` 在 v26/v27 两个臂都 16.6s 死亡，
+是场景本身无解，不是本版回归。）
+
+### 4. 已知限制
+
+- 路线风险是“直线 + 最近接近”的粗估，不是弹道级规划；每帧威胁项仍是最终兜底，
+  承诺期间身体/子弹价全价（不做通行折扣）。
+- `--arb-agg` 是行为档位，不是统计最优：0 = 旧二元门的严格侧（基本只在空路线上承诺），
+  2 = 更愿意穿过 1–2 只软身体；不同 build/角色/难度不保证同一档最优。
+- 特殊目标可见半径只对 special 类放宽；普通敌人仍只在旧半径内可见（远处普通怪不追符合预期）。
+- 掉落怪速度字段在世界坐标下测量；被墙卡住/位移类机制没有特殊处理（真机待验证）。
+- **真机 A/B 仍未跑**（需要用户同意后启动 Steam）：候选/场景已更新为
+  `calibration/candidates_v250.json` 的 13 开关控制臂 + v2.7 归因臂
+  （`no_opp` = 精确 v2.6.1、`agg0`/`agg2` = 风险档），runbook 见
+  `_research/planning-v250/bench.md`。因此以上结论均按“离线合成验收通过 + 无回归信号”理解。
+
+---
+
 ## 六、验证状态（诚实说明）
+
+### v2.7.0 离线验收（2026-11-06，第四轮）
+
+- `_research/planner-selftest/run.sh` → **`RESULT checks=355 fails=0 PASS`**（294 旧 + 61 新，
+  含 38 条 `opp=0` 控制臂与冻结 v2.6.1 `arbiter_v261.gd` 的逐值一致断言；`run.sh` 自动
+  `git show dcb6e39:...` 生成参考，不维护手抄副本）。
+- `_research/planning-v250/gate/run.sh` → **`RESULT checks=27 fails=0 PASS`**：A1 control
+  6.3s 死亡 / default 存活 30s hp70；B1 拾取 1.63s；B2 拾取 1.95s；C 控制臂 3×1800 帧逐帧
+  一致；新增 F1（target_min 185.2px / 1.67s 进入 274px 边缘）、F2（default 与 control 均
+  alive 25s hp_min 94.0，default nearest 27.7px / contact 0.20s）、E2b（必死路线不承诺）、
+  E2c（侧身怪允许承诺）；D 性能 1.25×/1.13×。
+- **测试先行基线**：同一版门禁跑在冻结的 v2.6.1 上 → `checks=27 fails=2`，失败恰好是
+  F1-default 与 E2c（v2.6.1 不 armed、无 `last_opp` 遥测）；planner-selftest 跑 v2.6.1
+  → `checks=355 fails=23`（仅新特性断言失败，旧 332 条全绿）。
+- **单帧探针**（Lead）：world_view 探针 **20/20 PASS**（`opp=0` 时 targets/threats/rewards
+  与冻结 HEAD 逐值一致；special 半径 900/1400/1600、最多 8 个、loot 6 元组含速度/价值 8）；
+  arbiter 探针 **12/12 PASS**（含 rich-world `choose()` ≈1.30×，≤2.5× 目标内）。
+- **闭环 sim**：S1/S2 特殊目标遮挡 1.77/1.78s 进入射程（v2.6.1/agg0 从不进入）；
+  S3/F3 逃跑掉落怪拦截 11.3s→2.8s（4.04×）；14 个既有场景 `opp=0` 与冻结 v2.6.1 逐字段
+  一致、默认臂无 alive/hp_min/edge 退化（细节见 §五点十）。
+- 已知未覆盖：**真机 A/B**（候选/场景已就绪，等待用户同意后启动 Steam）。
 
 ### v2.6.1 离线验收（2026-11-06，第三轮）
 
@@ -695,9 +853,9 @@ auto-brotato/
 ├── README.md                    # 项目主页（简短宣传）
 ├── docs/TECHNICAL.md            # 本文件（详细技术文档）
 ├── install.sh                   # 安装/卸载（Steam 工坊注入 / 非 Steam mods 目录）
-├── build.sh                     # 构建 dist/AutoBattler-2.6.1-fork.zip
+├── build.sh                     # 构建 dist/AutoBattler-2.7.0-fork.zip
 ├── dist/
-│   └── AutoBattler-2.6.1-fork.zip
+│   └── AutoBattler-2.7.0-fork.zip
 ├── mod/                         # Mod 源码（zip 内容）
 │   ├── LICENSE                  # 上游 BOTato MIT 许可
 │   ├── README-FORK.md           # 随 zip 分发的说明
@@ -711,7 +869,9 @@ auto-brotato/
     ├── api-map.md               # 反编译后的 API 映射与兼容性结论
     ├── audit.md                 # BOTato 自动决策审计 + 瘦身方案
     ├── strategy-v230-design.md  # v2.3.0 设计/根因
-    ├── planning-v250-design.md  # v2.5.0 设计/根因（本轮）
+    ├── planning-v250-design.md  # v2.5.0 设计/根因
+    ├── planning-v270-design.md  # v2.7.0 设计/根因（本轮）
+    ├── planning-v270/           # v2.7 world_view/arbiter 单帧探针
     ├── planning-v250/           # 闭环仿真 sim/ + 离线门禁 gate/
     ├── decompiled/              # 反编译源码（脚本部分）
     └── run-smoke*.log           # ModLoader 加载冒烟测试日志

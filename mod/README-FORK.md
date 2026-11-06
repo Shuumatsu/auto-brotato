@@ -169,6 +169,62 @@ switches it reproduces v2.4.0 frame-for-frame in the gate. Offline evidence:
 `_research/planner-selftest/` (294 checks PASS), and the closed-loop
 `_research/collision-bug/` suite.
 
+## Unified opportunity planning (2.7.0)
+
+Fourth play-test report: "special things still don't feel aggressive enough."
+v2.6 did have a bounty approach and committed item goals, but offline probes
+showed the whole opportunity layer was fenced off by four independent walls:
+
+- **(A) visibility**: world_view only emitted targets inside its ordinary
+  target reach (typically 620-680 px), so the 900 px bounty promise could never
+  be used;
+- **(B) binary safety gates**: a body within 300 px vetoed bounty and one
+  within 320 px vetoed goals, independent of direction -- and a real wave
+  almost always has a body that close, so the layer was effectively off;
+- **(C) pull**: the value/ETA pull was smaller than a body's 10-40 contact
+  price and decayed with distance, so a slight detour never won;
+- **(D) value**: special targets reused the killability-priced target value,
+  so a thick boss/elite could score below a trash mob.
+
+v2.7.0 replaces (B)(C)(D) with one risk-adjusted opportunity planner and fixes
+(A) in world_view:
+
+- **Explicit value table** (scaled by `--arb-bounty`): boss/elite 30, spawner
+  egg 40, cursed/evolved 18.
+- **Route risk** estimated from the SAME threat model: closest approach per
+  threat along the straight route, expected damage capped at 200. Commit only
+  when `risk <= value*(0.10 + 0.20*agg) + 2*agg`; score =
+  `value - risk - 0.5*eta`.
+- **Risk dial** (`--arb-agg` 0/1/2): HP floors 0.55/0.35/0.20 and the special
+  gather radius 900/1400/1600 px move together with the route-risk allowance.
+- **Commitment**: 100 frames; released when inside firing range, the target
+  disappears, or HP drops below floor*0.7, then a 15-frame cooldown. The pull
+  scales with value (`clamp(10 + 0.6*value, 14, 34)` for targets, x1-2 for
+  rewards) and a partial-speed "close-in" candidate stops the bot overshooting
+  the firing edge.
+- **Fleeing loot aliens**: world_view measures their velocity (6th reward
+  field) and values them 8 while opp is on; the arbiter aims with two
+  fixed-point interception iterations instead of chasing the tail.
+
+`--arb-opp=0` restores the exact v2.6.1 behaviour: legacy `_update_goal` /
+`_update_bounty`, old pulls, no target close-in, and world_view back to the old
+target radius / reward tuple form. `--arb-agg` (0 conservative / 1 default /
+2 aggressive) is inert when opp=0. The exact v2.4.0 control arm is now **all 13
+switches at 0**:
+
+```
+--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0
+--arb-space=0 --arb-bounty=0 --arb-boxes=0
+--arb-roomtrack=0 --arb-windup=0 --arb-hitbox=0 --arb-opp=0 --arb-agg=0
+```
+
+(Earlier "exact v2.4.0 control arm" lists in this file are version-scoped; from
+2.7.0 onwards `--arb-opp=0` is required as well.) Offline evidence:
+`docs/TECHNICAL.md` §5.10 -- self-test 355/0, gate 27/0 including the new
+F1/F2/E2b/E2c checks, closed-loop special approach 1.77/1.78 s (v2.6.1 never
+gets there), fleeing loot alien caught 11.3 s -> 2.8 s (4.04x). Live A/B still
+pending.
+
 ## Install (Steam)
 
 The Steam build's ModLoader only loads zips from **subscribed Workshop item

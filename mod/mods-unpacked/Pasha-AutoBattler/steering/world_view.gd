@@ -239,6 +239,22 @@ const LOOT_VALUE = 4.0           # a fleeing loot alien, for characters that can
 # --arb-bounty=0 / --arb-boxes=0 restore the exact 2.5.0 values and tuple
 # arity (A/B control arms).
 const LOOT_BOUNTY_VALUE = 6.0    # loot alien when bounty is on (>= GOAL_MIN_VALUE)
+# -- v2.7.0: unified opportunity layer (--arb-opp) --
+# User report: "special things still don't feel aggressive enough". The v2.6
+# bounty layer existed but was blind beyond target_reach (typically 620-680 px:
+# max(THREAT_RANGE, weapon_range + TARGET_EXTRA)), so a boss/egg/cursed body
+# 1-2 screens away never even entered the target array -- the arbiter's 900 px
+# BOUNTY_RANGE could never be used. v2.7 lets SPECIAL targets (boss/elite,
+# spawner egg, cursed/evolved) be collected out to OPP_SPECIAL_RANGES[agg]
+# while leaving ordinary targets on the old radius. The cap keeps the array
+# small (the arbiter's acquisition is O(candidates x threats) only on decision
+# frames, but there is no reason to carry the whole map).
+# --arb-opp=0 is the exact v2.6.1 control arm (old radius, old tuple arity).
+const OPP_ENABLE = 1.0
+const OPP_SPECIAL_RANGES = [900.0, 1400.0, 1600.0]   # by --arb-agg 0/1/2
+const OPP_SPECIAL_MAX = 8
+const OPP_LOOT_VALUE = 8.0       # fleeing loot alien once the opportunity layer
+                                 # can intercept it (was 6 with bounty, 4 without)
 const BOX_VALUE = 5.0            # a normal item crate: one item choice
 const LEGENDARY_BOX_VALUE = 10.0 # legendary crate: one legendary item choice
 const BIRTH_STEP_COST = 4.0      # avoid_births: a red X priced as a small standing AoE.
@@ -792,6 +808,17 @@ var _kill_ref = KILL_HP_REF      # refreshed per gather from live weapon stats
 var _loot_value = LOOT_VALUE     # per-character loot-alien reward, set each gather
 var _kill_ref_logged = -1e9      # last value announced on BOTLOG DPSREF
 
+# v2.7.0 opportunity layer switches (see the OPP_ block above). Both are fed
+# through the same --arb-* override dictionary as every other switch; opp=0
+# restores the exact v2.6.1 gather output (old target radius, old tuple arity,
+# old loot value/2-tuple).
+var opp_enable = OPP_ENABLE
+var opp_agg = 1.0
+var _special_range_sq = 0.0      # squared special-target gather radius, 0 = off
+var _loot_prev = {}              # loot-alien instance_id -> [pos, ticks_ms]
+var _loot_seen = {}              # ids seen this gather (cache pruning)
+var _loot_wave = -1              # wave the loot cache belongs to
+
 # Sweepable: --arb-charprofile=0 disables ALL character-specific logic at once,
 # so "generic strategy on this character" stays an exact control arm.
 # --arb-goldval overrides just the Builder's gold value (0 = ignore, positive
@@ -1039,6 +1066,15 @@ func apply_overrides(d: Dictionary) -> void:
 		# model), so the elite/boss/brachiosaurus under-estimate is restored.
 		hitbox_scan = float(d["hitbox"])
 		print("WORLDVIEW hitbox_scan=%.0f" % hitbox_scan)
+	if d.has("opp"):
+		# v2.7.0: 0 = exact v2.6.1 gather (ordinary target radius only, 4-field
+		# special tags only when bounty is on, 2-field loot reward).
+		opp_enable = float(d["opp"])
+		print("WORLDVIEW opp_enable=%.0f" % opp_enable)
+	if d.has("agg"):
+		# v2.7.0: risk appetite 0..2 -> special gather radius 900/1400/1600.
+		opp_agg = clamp(float(d["agg"]), 0.0, 2.0)
+		print("WORLDVIEW opp_agg=%.2f" % opp_agg)
 
 
 # Expected damage applications from a body over one horizon: how often it hits
@@ -1084,8 +1120,13 @@ func gather(main, player) -> void:
 	# approximation of one.
 	var row = _resolve_profile_row(player, spawner, character_id)
 	prefers_still = row.get("still", "") == "prefer"
-	_loot_value = float(row.get("loot_value",
-			LOOT_BOUNTY_VALUE if bounty_tag != 0.0 else LOOT_VALUE))
+	# v2.7.0: the opportunity layer can intercept a fleeing loot alien, so its
+	# default value rises to 8 while opp is on (the row's own loot_value still
+	# wins -- Pacifist's 0 must stay 0). opp=0 keeps the exact v2.6.1 fallback.
+	var loot_default = LOOT_VALUE
+	if bounty_tag != 0.0:
+		loot_default = OPP_LOOT_VALUE if opp_enable != 0.0 else LOOT_BOUNTY_VALUE
+	_loot_value = float(row.get("loot_value", loot_default))
 	if row.has("kill_ref"):
 		# A weaponless kit has no weapon DPS to measure, so killability would
 		# sit at the 20 HP floor and nothing on wave 5+ would count as killable.
@@ -1114,11 +1155,25 @@ func gather(main, player) -> void:
 
 	var target_reach = max(THREAT_RANGE, weapon_range + TARGET_EXTRA)
 	var target_range_sq = target_reach * target_reach
+	# v2.7.0: special targets get their own, larger, capped gather radius.
+	# opp=0 leaves _special_range_sq at 0, so _add_unit's visibility test is
+	# bit-for-bit the v2.6.1 one and no extra target can appear.
+	_special_range_sq = 0.0
+	if opp_enable != 0.0:
+		var agg_i = int(round(clamp(opp_agg, 0.0, 2.0)))
+		var sr = float(OPP_SPECIAL_RANGES[agg_i])
+		_special_range_sq = sr * sr
+		if _loot_wave != int(RunData.current_wave):
+			_loot_wave = int(RunData.current_wave)
+			_loot_prev.clear()
+		_loot_seen = {}
 
 	for enemy in spawner.enemies:
 		_add_unit(enemy, pos, range_sq, target_range_sq, pickup_sq)
 	for boss in spawner.bosses:
 		_add_unit(boss, pos, range_sq, target_range_sq, pickup_sq)
+	if opp_enable != 0.0 and _special_range_sq > 0.0:
+		_trim_special_targets(pos, target_range_sq)
 
 	var projectiles = main.get_node_or_null("EnemyProjectiles")
 	if projectiles:
@@ -1342,6 +1397,14 @@ func gather(main, player) -> void:
 				profile["engage_cluster"] = true
 		_resolve_anchor(row, spawner)
 
+	# v2.7.0: prune the loot-velocity cache for bodies that vanished this frame
+	# (a wave change clears it at the top of gather; within a wave loot aliens
+	# rarely persist long). Only opp uses the cache, so opp=0 skips the walk.
+	if opp_enable != 0.0:
+		for lid in _loot_prev.keys():
+			if not _loot_seen.has(lid):
+				_loot_prev.erase(lid)
+
 	# -- v2.4.0 DLC telemetry -------------------------------------------------
 	# At most one line per second. This exists for the real-game A/B: it proves
 	# the bot actually SAW cursed / evolved bodies and evolution pickups on the
@@ -1356,6 +1419,47 @@ func gather(main, player) -> void:
 		print("BOTLOG DLC wave=%d cursed=%d evolved=%d evo_ground=%d curse=%.2f evolved=%.2f evo=%.2f" % [
 				RunData.current_wave, last_cursed_n, last_evolved_n,
 				last_evo_ground_n, curse_mult, evolved_mult, evo_mult])
+
+
+# v2.7.0: cap the special-target population the arbiter has to reason about.
+# The special gather radius is 1.5-2.3x the legacy one, so a busy map could
+# otherwise hand the opportunity planner dozens of candidates; the nearest
+# OPP_SPECIAL_MAX is all a commitment layer can act on in one decision anyway.
+# Non-special targets are untouched, so the normal DPS/target path is identical.
+func _trim_special_targets(at: Vector2, legacy_range_sq: float) -> void:
+	# Everything the LEGACY radius can see is kept untouched: dropping a
+	# closer body because a far special used the extra budget would silently
+	# change the normal DPS/target behaviour. Only the wide-radius EXTRAS
+	# compete for the OPP_SPECIAL_MAX slots.
+	var extras = []
+	var legacy_special = 0
+	for i in range(targets.size()):
+		var t = targets[i]
+		if t.size() <= 3 or float(t[3]) <= 0.0:
+			continue
+		var dsq = at.distance_squared_to(t[0])
+		if dsq < legacy_range_sq:
+			legacy_special += 1
+		else:
+			var pos = extras.size()
+			for k in range(extras.size()):
+				if dsq < float(extras[k][0]):
+					pos = k
+					break
+			extras.insert(pos, [dsq, i])
+	var room = OPP_SPECIAL_MAX - legacy_special
+	if room < 0:
+		room = 0
+	if extras.size() <= room:
+		return
+	var drop = {}
+	for k in range(room, extras.size()):
+		drop[int(extras[k][1])] = true
+	var out = []
+	for i in range(targets.size()):
+		if not drop.has(i):
+			out.push_back(targets[i])
+	targets = out
 
 
 # "Killable" is relative to the guns doing the killing, and pinning it to a
@@ -1916,8 +2020,28 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 	if unit.is_loot:
 		# Loot aliens flee and are worth chasing, not avoiding -- for anyone
 		# who can catch and kill one. Pacifist can do neither (loot_value 0).
+		# v2.7.0: the opportunity layer wants to INTERCEPT a fleeing alien, so
+		# while opp is on the reward carries a 6th field with the measured
+		# velocity (r[2]=true keeps the old "attracted" reading for the legacy
+		# cost path, so every existing reader sees the same tuple semantics).
+		# opp=0 keeps the exact v2.6.1 2-field tuple.
 		if dist_sq < pickup_sq and _loot_value != 0.0:
-			rewards.push_back([unit.position, _loot_value])
+			if opp_enable != 0.0:
+				var lid = unit.get_instance_id()
+				var now_ms = OS.get_ticks_msec()
+				var lvel = Vector2.ZERO
+				if _loot_prev.has(lid):
+					var prev = _loot_prev[lid]
+					var dt = (float(now_ms) - float(prev[1])) / 1000.0
+					if dt > 0.001 and dt < 0.25:
+						lvel = (unit.position - prev[0]) / dt
+						if lvel.length() > 900.0:
+							lvel = lvel.normalized() * 900.0
+				_loot_prev[lid] = [unit.position, now_ms]
+				_loot_seen[lid] = true
+				rewards.push_back([unit.position, _loot_value, true, 0.0, 0.0, lvel])
+			else:
+				rewards.push_back([unit.position, _loot_value])
 		return
 
 	var radius = _body_radius(unit)
@@ -1950,7 +2074,25 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 	# Targets reach further than threats: a weapon can outrange the distance at
 	# which an enemy endangers us, and clipping targets to the threat radius
 	# blinded the bot to things it could already be shooting.
-	if dist_sq < target_range_sq:
+	#
+	# v2.7.0: SPECIAL bodies get their own gather radius (see the OPP_ block).
+	# An approach commitment is only possible for a target the arbiter can SEE,
+	# so the legacy target_reach (typically 620-680 px) was the hard ceiling on
+	# the whole opportunity layer regardless of --arb-bounty's 900 px.
+	# opp=0 keeps _special_range_sq at 0, so this is exactly the old condition.
+	var special = 0
+	if opp_enable != 0.0 or bounty_tag != 0.0:
+		if unit is Boss:
+			special = 1
+		elif _is_egg(unit):
+			special = 2
+		elif cursed or evolved:
+			special = 3
+	var target_visible = dist_sq < target_range_sq
+	if not target_visible and special > 0 and _special_range_sq > 0.0 \
+			and dist_sq < _special_range_sq:
+		target_visible = true
+	if target_visible:
 		# Third field: is this a boss/elite. The cluster engage mode must
 		# never count one as part of the pile it dives into.
 		#
@@ -1974,15 +2116,11 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 				tv = 0.0
 		# v2.6.0: 4th field = special-target class (1 boss/elite, 2 spawner
 		# egg, 3 cursed/evolved) for the arbiter's bounty approach. With
-		# --arb-bounty=0 the tuple stays the exact 2.5.0 3-field form.
-		if bounty_tag != 0.0:
-			var special = 0
-			if unit is Boss:
-				special = 1
-			elif _is_egg(unit):
-				special = 2
-			elif cursed or evolved:
-				special = 3
+		# --arb-bounty=0 the tuple stays the exact 2.5.0 3-field form; v2.7.0
+		# additionally tags while opp is on, because the unified planner also
+		# needs the class to price an opportunity (bounty=0 only disables the
+		# special candidates inside the planner, see arbiter OPP_VALUE).
+		if bounty_tag != 0.0 or opp_enable != 0.0:
 			targets.push_back([unit.position, tv, unit is Boss, special])
 		else:
 			targets.push_back([unit.position, tv, unit is Boss])
