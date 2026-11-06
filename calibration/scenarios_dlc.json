@@ -1,0 +1,7 @@
+{
+  "scenarios": [
+    {"character": "character_ranger", "difficulty": 6, "start_wave": 4, "speed": 3.0, "always_curse": true, "evolution_mult": 20},
+    {"character": "character_knight", "difficulty": 6, "start_wave": 4, "speed": 3.0, "always_curse": true, "evolution_mult": 20}
+  ],
+  "note": "v2.4.0 DLC real-game A/B (_research/dlc-v240-design.md §5.2). Ranger D6 + Knight D6 from wave 4 at 3.0x with COMPENSATED physics rate (harness sets Engine.time_scale=3 and iterations_per_second=180, so AI cadence / collision granularity stay 1x and this is a pure wall-clock accelerator). always_curse=true makes every eligible non-boss respawn a DLC1 cursed enemy for ALL arms; evolution_mult=20 raises the DLC2 evolution consumable drop chance (base 2% x20 = 40% per eligible kill). Wave 4 lasts 35 in-game seconds (~12 s wall at 3x), so a run is ~25-35 s incl. startup: 2 scenarios x 4 candidates x 3 repeats = 24 runs ~= 12-15 min. The harness prints [HARNESS] DLC active_update_data=... on startup; it MUST contain primal_dread (and abyssal_terrors), otherwise evolution consumables never drop and the batch is invalid (enable the DLC item sets in the game first)."
+}

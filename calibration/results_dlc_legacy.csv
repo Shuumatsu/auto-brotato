@@ -1,0 +1,7 @@
+candidate,character,difficulty,repeat,status,reason,wave,move_ratio,duration,min_hp,max_hp,profile,trees,fruit,gold,nearE_median,us_avg
+legacy230,character_ranger,6,1,OK,DEATH,5,0.96,27,1,7,"{caution:1.6, food:bank, gold:0.8, lethality:4.22, tree_value:3}",1,0,42,145,1894
+legacy230,character_knight,6,1,OK,WAVE_CLEARED_TIMER,5,0.97,35,9,13,"{caution:1.278, food:bank, gold:0.8, lethality:3.876, tree_value:3}",3,9,111,138,1188
+legacy230,character_ranger,6,2,OK,DEATH,5,0.96,25,7,7,"{caution:1.6, food:bank, gold:0.8, lethality:4.22, tree_value:3}",1,1,42,100,1620
+legacy230,character_knight,6,2,OK,DEATH,5,0.94,18,6,11,"{caution:1.302, food:bank, gold:0.8, lethality:3.924, tree_value:3}",0,4,75,107,662
+legacy230,character_ranger,6,3,OK,DEATH,5,0.92,12,1,7,"{caution:1.6, food:bank, gold:0.8, lethality:4.22, tree_value:3}",1,1,37,224,774
+legacy230,character_knight,6,3,OK,DEATH,5,0.93,14,3,11,"{caution:1.326, food:bank, gold:0.8, tree_value:3}",0,3,60,115,578

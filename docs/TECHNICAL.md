@@ -45,7 +45,7 @@ Brotato 的玩法决定了自动操作其实**只需要接管移动**：武器�
 ## 二、安装（Steam / macOS）
 
 > **当前状态（2026-11 实测后）**：本 Mod 已安装到你的游戏里：
-> `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.3.0-fork.zip`
+> `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.4.0-fork.zip`
 > （借用了 Mod Options 的工坊 item 目录）。测试用的 harness 已删除，其它 8 个 Mod 已恢复，
 > 测试前的 run 存档已还原。启动游戏即可生效；卸载/重装用 `./install.sh`。
 
@@ -59,7 +59,7 @@ cd auto-brotato
 脚本会：
 1. 自动定位 Brotato 安装目录；
 2. 找到你已安装的创意工坊 mod 目录（默认挑第一个，例如 Mod Options 的 `3598984651`）；
-3. 把构建好的 `dist/AutoBattler-2.3.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
+3. 把构建好的 `dist/AutoBattler-2.4.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
 
 然后**从 Steam 启动 Brotato**即可。
 
@@ -78,7 +78,7 @@ cd auto-brotato
 
 1. 启动 Steam（需登录拥有 Brotato 的账号）；
 2. 打开 `<Brotato>/GodotWorkshopUtility.app`；
-3. 选择 `dist/AutoBattler-2.3.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
+3. 选择 `dist/AutoBattler-2.4.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
    （可见性选"私有/不公开"也可以，自己订阅即可）；
 4. 上传后在 Steam 创意工坊订阅该 item，正常启动游戏。
 
@@ -123,6 +123,13 @@ cd auto-brotato
   `--arb-food=<M>`（受伤时果子价值倍数，0=关）、`--arb-plan=<0|1>`（2 步前瞻，0=纯贪心）、
   `--arb-adapt=<0|1>`（受击后临时警戒）。同一批键也可以写进
   `user://auto-battler-overrides.json`。
+- v2.4.0 DLC 开关（**带符号**，正=主动交战、负=回避、0=关闭即 2.3.0 精确行为）：
+  - `--arb-curse=<V>`（默认 `3.0`）：诅咒怪（DLC1）目标价值 ×V；负数进入回避姿态
+    （目标价值 0、该敌人威胁伤害 ×(1+|V|)，如 `-1` → ×2）。
+  - `--arb-evolved=<V>`（默认 `2.5`）：机械/异变进化怪（DLC2）同上。
+  - `--arb-evo=<M>`（默认 `1.0`）：进化物品拾取价值倍数，`0` = 完全回到 2.3.0
+    （所有消耗品仍按食物定价、不主动捡进化物品）。
+  - 例：`--arb-curse=6 --arb-evolved=4` 更激进；`--arb-curse=-1` 见到诅咒怪就躲。
 - 若发现角色不动：先看 HUD 是否 `ON`；再确认 mod 是否被加载
   （`~/Library/Application Support/Brotato/logs/modloader.log` 里应有 `Pasha-AutoBattler`）。
 
@@ -218,6 +225,100 @@ room/wall/dps 不动（避免受伤后变中心蹲）。`--arb-adapt=0` 回退�
 2 步前瞻带来约 36 次额外 `_cost` 评估（beam 4 × (8+1)），headless 实测约 2.4×：
 20/60/90 威胁下 plan0 = 0.42/1.08/1.55ms → plan1 = 1.07/2.69/3.87ms。
 >90 威胁自动跳过规划；仍嫌慢可用 `--arb-plan=0`、`--arb-beam=2/3` 或 `--arb-planthreats` 降阈值。
+
+## 五点六、v2.4.0 DLC 适配（诅咒怪 / 进化物品）
+
+玩家反馈：bot 遇到**被诅咒的敌人**（DLC1 Abyssal Terrors）只风筝不打；新 DLC
+（Primal Dread）的**进化物品**（机械果实/异变果/异变基因/机械部件）躺在原地不捡。
+
+### 1. 诅咒怪 / 进化怪为什么“不打”
+
+游戏侧（`_research/game-1.2.0.1/recovered/`，Brotato 1.2.0.1 反编译核实）：
+- 诅咒怪 = 普通敌人 + `boost()`：`hp_boost = 200 + 2*min(curse,300)`（百分比 → **至少 3 倍血**）、
+  `damage_boost = 50`（+50%）、`speed_boost = 75`（+75%），并加一圈
+  `Utils.CURSE_COLOR = ca61ff` 描边（`curse_enemy_effect_behavior.gd:9`），掉材料 +33%。
+- 进化怪 = `Enemy._is_meca / _is_mutant`，随 |evolution| 增长：meca HP +52%~+650%、damage +25%~+50%、
+  speed +5%~+25%；mutant HP +27%~+745%、damage +15%~+80%、speed +5%~+25%
+  （`evolution_scene_effect_behavior.gd`，magnitude 上限 300），加 `MECA_COLOR/MUTANT_COLOR` 描边，材料 +33%，
+  且机械/异变敌人分别掉落机械部件 / 异变基因类进化物品。
+
+旧版 world_view 把它们当普通敌人定价，于是出现**双向错误**：血量变大 → `_kill_value` 的
+killability 折减（目标价值下降）；伤害/速度变大 → 接触威胁权重上升。结果是“不值得打 + 更危险”
+→ arbiter 后撤 → 武器只自动瞄准射程内最近敌人，射程外就不开火 → 玩家看到“不打”。
+离线合成测试（真实 `arbiter.gd` + world_view 公式构造 tuple）：近战 range=140、单只诅咒怪在 280px 时，
+目标价值 ×1 → 0.8 秒后距离被拉到 378px（跑）；×2 以上 → 拉到 126px（主动接近）。
+所以**目标价值倍率是有效且可调的杠杆**。
+
+### 2. 实现（只改 `world_view.gd`，`arbiter.gd` 一行未改）
+
+- **检测**：诅咒 = `unit.has_outline(Utils.CURSE_COLOR)`（描边存活期间不消失，也是玩家看到的标记）；
+  进化 = `Enemy._is_meca/_is_mutant`（用 `"x" in unit` 防御式读取）。
+- **交战/回避姿态**（带符号开关，见 §三）：
+  - `V > 0`：该敌人的 targets 价值 ×V（更愿意把其保持在武器射程内 = “打它”）；威胁伤害不动。
+  - `V < 0`：**非 Boss** 敌人的 targets 价值 = 0（不主动靠近），同时该敌人的接触/冲锋/蓄力威胁伤害
+    ×(1+|V|)（更早躲）。
+  - Boss/精英：不做 target 价值倍率、不清零（避免为了打精英贴脸）；但回避侧的威胁伤害缩放对 Boss 同样生效。
+- **进化物品**：单独奖励类，不再按 `_food_value`（掉血治疗）定价。
+  - 分类：`Keys.consumable_meca_fruit_hash / mutant_fruit / mutation_fruit / meca_parts_hash`，
+    另有 id 字符串与 effect key（`stat_evolution` / `meca_parts`）后备。
+  - 资格：必须通过 `RunData.can_pick_up_consumable`（游戏自己的阵营锁/进化阈值），
+    非 dual 角色只捡**不跨越 0 点**的方向（evolution>0 只捡机械果实，<0 只捡异变果，=0 两者皆可）。
+  - 拾取方式：这些消耗品**不会被吸引圈收走**（`can_attract_consumable_data` 排除两种果实，
+    吸引区也仅收有治疗效果的物品），必须踩上去。而且机械/异变果实的
+    `attracted_at_end_of_wave = false`——**波次结束也不会被自动吸走，波内不踩就留在地上随场景消失**
+    （mutation fruit / 机械部件是 true，波末会吸）。因此奖励用 **held rim=45px**
+    （玩家拾取圈半径 32px，物品半径 ~10px）：arbiter 会对“终点进入拾取圈”给全额奖励，
+    rim=0 时只剩线性梯度、bot 会停在圈边。
+  - 价值（可 `--arb-evo` 缩放）：机械/异变果实 6、异变基因（mutation fruit）9、机械部件 6
+    （对比：loot alien 4、树 3、受伤果实最高 30）。
+  - 顺带修正：**非治疗消耗品不再被当食物**——毒果（`ConsumableDamageEffect`）不会再被主动吃；
+    普通果实/物品箱（有 `ConsumableHealingEffect`）行为不变。
+- 控制臂：`--arb-curse=0 --arb-evolved=0 --arb-evo=0` 时 threats/targets/rewards 与 2.3.0 逐值一致
+  （离线 fake 世界对照测试 + A/B 的 control 臂）。
+- 遥测：每秒最多一行 `BOTLOG DLC wave=.. cursed=N evolved=N evo_ground=M curse=.. evolved=.. evo=..`，
+  证明 bot 确实“看到”了 DLC 内容。
+
+### 3. 真机 A/B（v2.4.0）
+
+方法：真实游戏自动开局（Steam，Brotato 1.2.0.1，DLC 物品集全开）。harness 强制
+`always_curse=true`（所有非 Boss 敌人被诅咒，压力测试）、`evolution_consumables_drop_mult=20`
+（进化消耗品掉率 ×20）、`Engine.time_scale=3`+物理帧补偿；对比 `control`（三开关全 0 = 2.3.0 行为）、
+`dlc`（新默认 3.0/2.5/1.0）、`dlc_strong`（6.0/4.0）、`avoid`（curse=-1，仅第 1 轮）、
+以及旧 2.3.0 构建（批次对照）。详细原始数据/日志在 `_research/dlc-bench/`。
+
+**Round 1（Danger 6 / wave 4 / n=3 每场景每臂，24 局；环境过凶，除个别外全部死亡）**
+
+| 臂 | 角色 | cursedKilled | hp_frac | evo_picked | nearE | 存活 s |
+|---|---|---|---|---|---|---|
+| control | knight | 38 | 0.92 | 11 | 137 | 22 |
+| dlc | knight | 37 | 1.00 | 19 | 110 | 21 |
+| dlc_strong | knight | 82 | 0.85 | 32 | 110 | 32 |
+| control | ranger | 6 | 0.74 | 1 | 137 | 15 |
+| dlc | ranger | 8 | 0.83 | 0 | 131 | 13 |
+| avoid | knight/ranger | 42 / 6 | 0.94 / 0.85 | 9 / 3 | 144 / **204** | 24 / 13 |
+
+**Round 2（Danger 3 / wave 3 / n=3 每场景每臂，18 局，主判据）**
+
+| 臂 | 清波 | 掉血 | minHP | nearE (knight/ranger) | cursedKilled (knight/ranger) | evo_picked 合计 |
+|---|---|---|---|---|---|---|
+| control | 6/6 | 2.17 | 4 | 165 / 126 | 58 / 31 | **32** |
+| **dlc（默认）** | **6/6** | 4.50 | 1 | **121** / 128 | 56 / 32 | **66（+106%）** |
+| dlc_strong | 4/6 | 5.50 | 2 | 122 / 153 | 54 / 28 | 63 |
+
+结论（方向性，样本小）：
+1. **进化物品拾取修复有效**：默认档波内拾取量 32→66（两角色均上升），清波率不变。
+2. **诅咒怪交战更主动**：近战 Knight 的 `nearE` 165→121px（更愿意贴近打），代价是掉血 2.3→5.3
+   —— 打“至少 3 倍血 +50% 伤害 +75% 速度”的诅咒怪本就要付出代价，这也是需要回避开关的原因；
+   远程 Ranger 的 `nearE` 不变（继续风筝），但同样会顺路捡进化物品。
+3. **默认值 3.0/2.5 合适**：更激进的 6/4 在 D3 出现 2/6 死亡，不回退清波率的意义上更差；需要更激进的
+   玩家可自行 `--arb-curse=6 --arb-evolved=4`。
+4. **回避姿态有效**：`avoid`（curse=-1）把 nearE 137→204px、掉血 6.17→5.17、最低 HP 1→2。
+5. 旧 2.3.0 构建与 `control` 同量级，说明批次/构建无系统差异。
+
+> 局限：样本小（每臂 6 局）、单波 30s、`always_curse` 压力场景，绝对数值不可外推；`evolved` 敌人实机
+> 难触发（新开局 evolution=0），该分支与诅咒共用机制，由离线 297 条断言覆盖。存档跑前备份、跑后恢复
+> 并校验 sha256 一致；其它 mod 由 benchmark 自动恢复。
+
 
 ## 六、验证状态（诚实说明）
 
@@ -353,9 +454,9 @@ auto-brotato/
 ├── README.md                    # 项目主页（简短宣传）
 ├── docs/TECHNICAL.md            # 本文件（详细技术文档）
 ├── install.sh                   # 安装/卸载（Steam 工坊注入 / 非 Steam mods 目录）
-├── build.sh                     # 构建 dist/AutoBattler-2.3.0-fork.zip
+├── build.sh                     # 构建 dist/AutoBattler-2.4.0-fork.zip
 ├── dist/
-│   └── AutoBattler-2.3.0-fork.zip
+│   └── AutoBattler-2.4.0-fork.zip
 ├── mod/                         # Mod 源码（zip 内容）
 │   ├── LICENSE                  # 上游 BOTato MIT 许可
 │   ├── README-FORK.md           # 随 zip 分发的说明

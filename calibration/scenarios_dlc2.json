@@ -1,0 +1,7 @@
+{
+  "scenarios": [
+    {"character": "character_ranger", "difficulty": 3, "start_wave": 3, "speed": 3.0, "always_curse": true, "evolution_mult": 20},
+    {"character": "character_knight", "difficulty": 3, "start_wave": 3, "speed": 3.0, "always_curse": true, "evolution_mult": 20}
+  ],
+  "note": "v2.4.0 DLC A/B round 2 (Lead). The D6/wave4 batch was too lethal (all arms DEATH, ranger died ~13 s before late-wave evolution drops), so the same content test runs at Danger 3 from wave 3: longer survival -> enough samples to compare cursed engagement (cursed_killed / survival, cursed_hp_frac) and evolution pickups (evo_picked vs evo_ground). always_curse=true, evolution_mult=20, 3x compensated speed. arms: control=old behaviour, dlc=shipped defaults (3/2.5/1), dlc_strong=(6/4). 2 scenarios x 3 arms x 3 repeats = 18 runs (~9 min)."
+}

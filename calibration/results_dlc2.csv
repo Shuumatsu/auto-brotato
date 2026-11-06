@@ -1,0 +1,19 @@
+candidate,character,difficulty,repeat,status,reason,wave,move_ratio,duration,min_hp,max_hp,profile,trees,fruit,gold,nearE_median,us_avg
+control,character_ranger,3,1,OK,WAVE_CLEARED_TIMER,4,0.90,30,7,8,"{caution:1.56, food:bank, gold:0.8, lethality:4.14, tree_value:3}",0,3,72,122,1138
+control,character_knight,3,1,OK,WAVE_CLEARED_TIMER,4,0.90,30,10,13,"{caution:1.278, food:bank, gold:0.8, lethality:3.876, tree_value:3}",1,11,112,161,812
+control,character_ranger,3,2,OK,WAVE_CLEARED_TIMER,4,0.97,30,4,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:3}",1,4,67,126,1155
+control,character_knight,3,2,OK,WAVE_CLEARED_TIMER,4,0.90,30,10,12,"{caution:1.278, food:bank, gold:0.8, lethality:3.876, tree_value:3}",1,7,108,197,867
+control,character_ranger,3,3,OK,WAVE_CLEARED_TIMER,4,0.97,30,7,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:3}",1,1,57,131,1306
+control,character_knight,3,3,OK,WAVE_CLEARED_TIMER,4,0.93,30,10,12,"{caution:1.302, food:bank, gold:0.8, lethality:3.924, tree_value:3}",0,8,95,136,857
+dlc,character_ranger,3,1,OK,WAVE_CLEARED_TIMER,4,0.90,30,5,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:3}",1,7,63,145,1174
+dlc,character_knight,3,1,OK,WAVE_CLEARED_TIMER,4,0.93,30,9,13,"{caution:1.278, food:bank, gold:0.8, lethality:3.876, tree_value:3}",2,22,111,107,778
+dlc,character_ranger,3,2,OK,WAVE_CLEARED_TIMER,4,0.97,30,1,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:3}",2,5,70,134,1148
+dlc,character_knight,3,2,OK,WAVE_CLEARED_TIMER,4,0.93,30,3,13,"{caution:1.278, food:bank, gold:0.8, lethality:3.876, tree_value:3}",1,14,112,146,742
+dlc,character_ranger,3,3,OK,WAVE_CLEARED_TIMER,4,0.97,30,7,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:3}",1,7,70,104,1267
+dlc,character_knight,3,3,OK,WAVE_CLEARED_TIMER,4,0.97,30,10,12,"{caution:1.302, food:bank, gold:0.8, lethality:3.924, tree_value:3}",1,14,104,109,568
+dlc_strong,character_ranger,3,1,OK,WAVE_CLEARED_TIMER,4,0.97,30,7,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:3}",1,3,65,132,1207
+dlc_strong,character_knight,3,1,OK,WAVE_CLEARED_TIMER,4,0.97,30,3,13,"{caution:1.278, food:bank, gold:0.8, lethality:3.876, tree_value:3}",2,20,109,125,605
+dlc_strong,character_ranger,3,2,OK,WAVE_CLEARED_TIMER,4,0.97,30,7,8,"{caution:1.56, food:bank, gold:0.8, lethality:4.14, tree_value:3}",1,4,71,119,1248
+dlc_strong,character_knight,3,2,OK,WAVE_CLEARED_TIMER,4,0.97,30,7,13,"{caution:1.278, food:bank, gold:0.8, lethality:3.876, tree_value:3}",1,16,112,118,714
+dlc_strong,character_ranger,3,3,OK,DEATH,4,0.86,21,2,8,"{caution:1.58, food:bank, gold:0.8, lethality:4.18, tree_value:3}",0,3,49,209,802
+dlc_strong,character_knight,3,3,OK,DEATH,4,0.88,24,3,12,"{caution:1.302, food:bank, gold:0.8, lethality:3.924, tree_value:3}",1,18,89,122,643

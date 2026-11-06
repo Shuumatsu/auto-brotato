@@ -234,6 +234,58 @@ const BIRTH_STEP_COST = 4.0      # avoid_births: a red X priced as a small stand
                                  # jack, king) the spawn -- a real cost, never a lethal
                                  # one, so it must lose to every genuine threat
 
+# -- v2.4.0 DLC defaults (the world_view half) --
+#
+# Cursed enemies (DLC1 Abyssal Terrors) and evolved enemies (DLC2 Primal Dread)
+# are ordinary bodies with a boost stacked on top: a curse adds at least +200%
+# HP, +50% damage and +75% speed (curse_scene_effect_behavior: hp_boost 200 +
+# 2*min(curse,300)); an evolution adds +50..+350% HP, +25..+80% damage and
+# +5..+25% speed (evolution_scene_effect_behavior). Killing them is what the
+# DLC PAYS for (+33% material value on both, curse-scaling item effects, and
+# the evolution-consumable drops), but the generic pricing sees the opposite:
+# the bigger HP pool shrinks the killability factor in _kill_value while the
+# boosted contact damage grows the threat. That is the reported bug -- the bot
+# backs out of exactly the fights the player took the DLC to fight. The default
+# stance is therefore ENGAGE: scale the TARGET value so keeping the body inside
+# weapon range is worth doing, leaving the threat side untouched. Both knobs
+# are signed, so the documented opposite stance ("some cases should avoid
+# cursed enemies") is one flag away:
+#   v > 0   target value x v                            (engage)
+#   v < 0   target value 0, threat damage x (1 + |v|)   (avoid; -1 -> x2)
+#   v == 0  no number changes (exact v2.3.0 control arm)
+const CURSE_TARGET_MULT = 3.0      # --arb-curse: cursed target value x3
+const EVOLVED_TARGET_MULT = 2.5    # --arb-evolved: meca/mutant target value x2.5
+#
+# Evolution pickups. The four Primal Dread consumables are progression, not
+# healing: a meca/mutant fruit is one point of stat_evolution (a permanent camp
+# commitment), a mutation fruit opens the wave-end "mutate an item" choice, and
+# meca parts are the weapon-evolution currency. None of them can be attracted
+# (Player.can_attract_consumable_data excludes the two fruits, and the attract
+# area only pulls heal-effect items), so the bot must physically walk over
+# them. The old food pricing -- 0 at full HP, NEGATIVE for bank kits -- could
+# never justify that walk, which is why they lay on the floor all wave.
+const EVO_FRUIT_VALUE = 6.0        # meca/mutant fruit (stat_evolution +-1)
+const EVO_MUTATION_VALUE = 9.0     # mutation fruit (wave-end mutate choice)
+const EVO_PARTS_VALUE = 6.0        # meca parts (2 parts, weapon evolution currency)
+# Reward rim for an evolution pickup. player.tscn's ItemPickupArea is a
+# radius-32 circle 24 px above the body, plus the item's own radius (~8-10 px):
+# the physical pickup is ~40 px. A rim-0 reward only has the linear approach
+# gradient, and that gradient dies AT zero -- the bot parks on the edge of the
+# pickup circle and never steps in. The arbiter's HELD rim (4th tuple field)
+# pays the FULL value to a move that ENDS inside it, which is the step this
+# pickup actually needs; the item leaves _consumables the frame it is taken.
+const EVO_WALK_RIM = 45.0
+var curse_mult = CURSE_TARGET_MULT      # --arb-curse
+var evolved_mult = EVOLVED_TARGET_MULT  # --arb-evolved
+var evo_mult = 1.0                 # --arb-evo: x all three pickup values; 0 = old food-only pricing
+# Counts refreshed every gather and printed by the once-a-second BOTLOG DLC
+# line: a real-game A/B has to prove the bot SAW the DLC content, not only that
+# it scored it differently.
+var last_cursed_n = 0
+var last_evolved_n = 0
+var last_evo_ground_n = 0
+var _dlc_log_ms = -1000000       # OS.get_ticks_msec of the last BOTLOG DLC line (rate limit)
+
 # -- The table --
 #
 # Keys, all optional:
@@ -883,6 +935,21 @@ func apply_overrides(d: Dictionary) -> void:
 		# leash radius -- the A/B for "rim orbit vs room to dodge".
 		center_mode_override = float(d["centermode"])
 		print("WORLDVIEW center_mode_override=%.0f" % center_mode_override)
+	if d.has("curse"):
+		# v2.4.0: signed stance on cursed enemies. >0 = target value x v
+		# (engage), <0 = avoid (target 0, threat damage x(1+|v|)), 0 = exact
+		# v2.3.0 control arm.
+		curse_mult = float(d["curse"])
+		print("WORLDVIEW curse_mult=%.2f" % curse_mult)
+	if d.has("evolved"):
+		# Same signed stance for meca/mutant (evolved) enemies.
+		evolved_mult = float(d["evolved"])
+		print("WORLDVIEW evolved_mult=%.2f" % evolved_mult)
+	if d.has("evo"):
+		# v2.4.0: multiplier on the evolution-pickup values. 0 restores the
+		# old food-only pricing exactly, so it is the A/B control arm.
+		evo_mult = float(d["evo"])
+		print("WORLDVIEW evo_mult=%.2f" % evo_mult)
 
 
 # Expected damage applications from a body over one horizon: how often it hits
@@ -898,6 +965,10 @@ func gather(main, player) -> void:
 	rewards = []
 	targets = []
 	chargers = []
+	# v2.4.0 DLC telemetry counters (see the BOTLOG DLC line at the end).
+	last_cursed_n = 0
+	last_evolved_n = 0
+	last_evo_ground_n = 0
 	far_corner = ZoneService.current_zone_max_position
 	body_radius = _body_radius(player)
 	mitigation = _mitigation(player)
@@ -979,10 +1050,38 @@ func gather(main, player) -> void:
 	var max_hp = max(float(player.max_stats.health), 1.0)
 	var missing_hp = max_hp - current_hp
 	var food_mode = row.get("food", "")
+	# v2.4.0: evolution consumables are a reward class the old food pricing
+	# cannot express -- they heal nothing, cannot be attracted (see the EVO_*
+	# block above), and the only way to take one is to step the ItemPickupArea
+	# over it. _consumable_value prices them as progression and gates them on
+	# the game's own eligibility rules; everything that IS food keeps the old
+	# _food_value line and the old 2-field tuple (rim = pickup_radius).
+	#
+	# --arb-evo=0 is the exact v2.3.0 control arm, so it runs the old line
+	# verbatim -- same tuple arity, same food value for every consumable --
+	# instead of asking the new classifier. That keeps a HEAD-vs-new A/B on
+	# the all-zero arm value-for-value identical, which is what the control
+	# arm is for.
+	last_evo_ground_n = 0
 	for c in main._consumables:
-		if c.position.distance_squared_to(pos) < pickup_sq:
+		if c.position.distance_squared_to(pos) >= pickup_sq:
+			continue
+		if _consumable_kind(c) != "":
+			last_evo_ground_n += 1
+		if evo_mult == 0.0:
 			rewards.push_back([c.position,
 					_food_value(food_mode, c.position, missing_hp, spawner)])
+			continue
+		var v = _consumable_value(c, player, food_mode, missing_hp, spawner)
+		if v == 0.0:
+			continue
+		if _consumable_is_food(c):
+			rewards.push_back([c.position, v])
+		else:
+			# Evolution pickup: HELD rim (see EVO_WALK_RIM), so a move that
+			# ENDS inside the physical pickup circle is paid in full; rim 0
+			# would leave the bot circling the edge.
+			rewards.push_back([c.position, v, false, EVO_WALK_RIM])
 	# Drops are collected by the attract area, not by contact: the arbiter
 	# prices distance to its rim (profile pickup_radius) and pays a "taken"
 	# bonus for a move that ends inside it. A drop already flying to us is
@@ -1138,6 +1237,21 @@ func gather(main, player) -> void:
 				profile["engage_cluster"] = true
 		_resolve_anchor(row, spawner)
 
+	# -- v2.4.0 DLC telemetry -------------------------------------------------
+	# At most one line per second. This exists for the real-game A/B: it proves
+	# the bot actually SAW cursed / evolved bodies and evolution pickups on the
+	# floor, not merely that it scored them differently. The counts are updated
+	# even on the all-zero control arm, so both arms can be compared on the
+	# same population. Throttled on WALL CLOCK, not physics ticks: gather() only
+	# runs on decision frames and --arb-every=N can space those N ticks apart,
+	# so a tick counter would silently become a once-per-N-seconds line.
+	var now_ms = OS.get_ticks_msec()
+	if now_ms - _dlc_log_ms >= 1000:
+		_dlc_log_ms = now_ms
+		print("BOTLOG DLC wave=%d cursed=%d evolved=%d evo_ground=%d curse=%.2f evolved=%.2f evo=%.2f" % [
+				RunData.current_wave, last_cursed_n, last_evolved_n,
+				last_evo_ground_n, curse_mult, evolved_mult, evo_mult])
+
 
 # "Killable" is relative to the guns doing the killing, and pinning it to a
 # static 20 HP is why a maxed build still tiptoed around elites it could
@@ -1267,6 +1381,152 @@ func _food_value(mode: String, fpos: Vector2, missing_hp: float, spawner) -> flo
 	if food_mult > 0.0:
 		return food_mult * min(FOOD_MAX, missing_hp)
 	return min(FOOD_MAX, missing_hp)
+
+
+# --- v2.4.0: Primal Dread evolution pickups --------------------------------
+#
+# The four evolution consumables are new RESOURCES, not a new healing path: a
+# meca/mutant fruit is one point of stat_evolution (a permanent camp
+# commitment), a mutation fruit opens the wave-end "mutate an item" choice, and
+# meca parts are the weapon-evolution currency. The old gather() priced every
+# consumable with _food_value, i.e. by MISSING HP: at full HP a bank-mode kit
+# priced them NEGATIVE (-0.8) and even a full-HP-eater valued them as healing
+# that does nothing. And none of them can be collected by the attract area
+# (Player.can_attract_consumable_data explicitly excludes meca/mutant fruit,
+# and ItemAttractArea only pulls heal-effect consumables), so the only way to
+# take one is to physically walk the ItemPickupArea over it. A food-priced
+# reward can never justify that detour -- which is the reported bug: they lie
+# on the floor for the whole wave.
+#
+# So they get a dedicated reward class and a held rim (EVO_WALK_RIM) instead of
+# the attract rim, and the eligibility gates the GAME itself uses: picking up
+# an ineligible fruit does nothing at best and drags the evolution bar the
+# wrong way at worst, so the bot must not path to one it cannot use.
+
+# Value of one consumable for the arbiter. 0.0 = do not collect / do not price.
+func _consumable_value(c, player, food_mode: String, missing_hp: float, spawner) -> float:
+	var data = c.get("consumable_data")
+	if data == null:
+		return 0.0
+	var kind = _evolution_consumable_kind(data)
+	if kind != "":
+		# 0 is the exact v2.3.0 control arm. (The gather loop branches on it
+		# before calling here and runs the old food-only line verbatim; the
+		# guard stays so a direct caller sees "feature off" rather than a
+		# value that would be applied to a reward the old build never made.)
+		if evo_mult == 0.0:
+			return 0.0
+		var pi = int(player.player_index)
+		# The game's own gate: camp locks, evolution threshold, DLC presence.
+		if not RunData.can_pick_up_consumable(data, pi):
+			return 0.0
+		if not _evolution_direction_ok(kind, pi):
+			return 0.0
+		return evo_mult * _evolution_base_value(kind)
+	if not _consumable_is_food(c):
+		# Non-healing, non-evolution consumables are not food. In 1.2.0.1 the
+		# only one is DLC1's poisoned fruit (ConsumableDamageEffect: eating it
+		# HURTS), which the old generic _food_value line happily priced as
+		# healing and walked over when hurt. Unknown future pickups are left
+		# out for the same reason: "not healing" is the honest price of an
+		# effect class this function does not understand.
+		return 0.0
+	return _food_value(food_mode, c.position, missing_hp, spawner)
+
+
+# Healing consumables keep the old attract-rim semantics (the arbiter prices
+# them at profile pickup_radius). Everything else -- today only the evolution
+# items -- is a physical walk-on pickup and must be priced with a held rim.
+func _consumable_is_food(c) -> bool:
+	return c.has_method("has_healing_effect") and c.has_healing_effect()
+
+
+# Convenience wrapper so gather() can count ground evolution pickups for
+# telemetry without unpacking the Consumable -> ConsumableData hop itself.
+func _consumable_kind(c) -> String:
+	return _evolution_consumable_kind(c.get("consumable_data"))
+
+
+# "" = ordinary consumable; otherwise one of the four evolution kinds.
+# Detection is by the game's own id hash; the declared id string and the effect
+# list are fallbacks for a resource whose hash generation was deferred
+# (ItemParentData generates my_id_hash call_deferred from my_id) and for
+# hand-built data in offline tests. The effect fallback is what still catches
+# meca_parts if the hash channel is unavailable -- its GainMecaPartsEffect is
+# serialized with key "meca_parts" and value 2.
+func _evolution_consumable_kind(data) -> String:
+	if data == null:
+		return ""
+	var id_hash = data.get("my_id_hash")
+	if typeof(id_hash) == TYPE_INT or typeof(id_hash) == TYPE_REAL:
+		var ih = int(id_hash)
+		if ih == Keys.consumable_meca_fruit_hash:
+			return "meca_fruit"
+		if ih == Keys.consumable_mutant_fruit_hash:
+			return "mutant_fruit"
+		if ih == Keys.consumable_mutation_fruit_hash:
+			return "mutation_fruit"
+		if ih == Keys.consumable_meca_parts_hash:
+			return "meca_parts"
+	var my_id = data.get("my_id")
+	if my_id is String and my_id != "":
+		if my_id == "meca_consumable_fruit":
+			return "meca_fruit"
+		if my_id == "mutant_consumable_fruit":
+			return "mutant_fruit"
+		if my_id == "mutation_consumable_fruit":
+			return "mutation_fruit"
+		if my_id == "meca_parts_consumable":
+			return "meca_parts"
+	var effects = data.get("effects")
+	if effects is Array:
+		for e in effects:
+			if e == null:
+				continue
+			var ekey = e.get("key")
+			if not (ekey is String) or ekey == "":
+				continue
+			if ekey == "stat_evolution":
+				# meca fruit is +1 (key = stat_evolution, value = 1), mutant
+				# fruit is -1: the sign IS the camp.
+				var ev = 0.0
+				var evalue = e.get("value")
+				if typeof(evalue) == TYPE_INT or typeof(evalue) == TYPE_REAL:
+					ev = float(evalue)
+				return "meca_fruit" if ev > 0.0 else "mutant_fruit"
+			if ekey == "meca_parts":
+				return "meca_parts"
+	return ""
+
+
+# What one evolution pickup is worth BEFORE --arb-evo: fruit 6 (a camp point),
+# mutation fruit 9 (a wave-end item mutation -- the strongest single pickup),
+# meca parts 6 (two parts, half a weapon evolution). These are OPPORTUNITY
+# values, sized like LOOT_VALUE (4) and below EGG_VALUE (60): they shape a path
+# that is already safe, never outbid a real threat.
+func _evolution_base_value(kind: String) -> float:
+	if kind == "mutation_fruit":
+		return EVO_MUTATION_VALUE
+	if kind == "meca_parts":
+		return EVO_PARTS_VALUE
+	return EVO_FRUIT_VALUE
+
+
+# Camp direction. RunData.can_pick_up_consumable already enforces the hard game
+# rule (camp lock, evolution threshold); this adds the policy the spec asks
+# for: a non-dual kit must not be tempted ACROSS the zero line -- a meca fruit
+# is only worth a step while the bar is on the meca side, a mutant fruit only
+# while it is on the mutant side. mutation fruit / meca parts have no direction
+# of their own; the game gate is the whole rule for those.
+func _evolution_direction_ok(kind: String, player_index: int) -> bool:
+	if RunData.is_dual_evolution(player_index):
+		return true
+	var evolution = float(RunData.get_player_effect(Keys.stat_evolution_hash, player_index))
+	if kind == "meca_fruit":
+		return not RunData.is_mutant_only(player_index) and evolution >= 0.0
+	if kind == "mutant_fruit":
+		return not RunData.is_meca_only(player_index) and evolution <= 0.0
+	return true
 
 
 func _caution(row: Dictionary, hp_ratio: float = 1.0) -> float:
@@ -1452,6 +1712,38 @@ func _builder_gold_value(player) -> float:
 	return BUILDER_GOLD_LATE         # maxed; take some, not all
 
 
+# --- v2.4.0: DLC enemy classification --------------------------------------
+#
+# Curse (DLC1 Abyssal Terrors): CurseEnemyEffectBehavior.init adds the DLC
+# outline color (Utils.CURSE_COLOR = ca61ff) to the enemy and nothing removes
+# it while the body is alive (Entity._outline_colors is cleared only when the
+# entity dies / returns to the pool). There is no cursed flag on Unit, so the
+# outline is the one reliable public marker -- and it is also exactly what the
+# player sees, which keeps the bot's read of the screen honest.
+#
+# Evolution (DLC2 Primal Dread): EvolutionSceneEffectBehavior sets
+# Enemy._is_meca / Enemy._is_mutant (both exported, false by default) when it
+# boosts a body, and evolved scenes can author the flags directly. The "in"
+# guards keep the read safe for any unit shape that does not carry them
+# (boss subclasses, offline fakes) -- GDScript's `in` on an Object tests for
+# the property instead of throwing.
+func _enemy_is_cursed(unit) -> bool:
+	return unit.has_method("has_outline") and unit.has_outline(Utils.CURSE_COLOR)
+
+
+func _enemy_is_evolved(unit) -> bool:
+	if ("_is_meca" in unit) and unit._is_meca:
+		return true
+	return ("_is_mutant" in unit) and unit._is_mutant
+
+
+# The avoid side of a signed DLC knob: v<0 makes the body a hazard whose damage
+# is multiplied by (1+|v|) (v=-1 -> x2, "twice as scary"). Engage and control
+# values return 1.0, so the all-zero arm keeps damage bit-identical.
+func _avoid_scale(v: float) -> float:
+	return 1.0 - v if v < 0.0 else 1.0
+
+
 func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pickup_sq: float) -> void:
 	if unit.dead or unit._pending_die:
 		return
@@ -1473,19 +1765,61 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 	if unit.current_stats and unit.current_stats.damage > 0:
 		damage = float(unit.current_stats.damage)
 
+	# v2.4.0 DLC kinds (see the classification block above). Both feeds matter:
+	# the target value below decides whether the bot is willing to KEEP this
+	# body inside weapon range, and the threat damage decides how hard it tries
+	# to keep away from it. The counters feed the once-a-second BOTLOG line.
+	var cursed = _enemy_is_cursed(unit)
+	var evolved = _enemy_is_evolved(unit)
+	if cursed:
+		last_cursed_n += 1
+	if evolved:
+		last_evolved_n += 1
+
+	# The avoid half of the knobs. The curse/evolution stat boost is already
+	# inside current_stats.damage; a negative knob multiplies that by (1+|v|)
+	# so "avoid" both removes the target pull below and makes the approach
+	# genuinely more expensive. v>=0 leaves damage untouched (bit-identical to
+	# the old build), which is what the all-zero control arm requires.
+	var threat_damage = damage
+	if cursed:
+		threat_damage *= _avoid_scale(curse_mult)
+	if evolved:
+		threat_damage *= _avoid_scale(evolved_mult)
+
 	# Targets reach further than threats: a weapon can outrange the distance at
 	# which an enemy endangers us, and clipping targets to the threat radius
 	# blinded the bot to things it could already be shooting.
 	if dist_sq < target_range_sq:
 		# Third field: is this a boss/elite. The cluster engage mode must
 		# never count one as part of the pile it dives into.
-		targets.push_back([unit.position, _kill_value(unit, damage), unit is Boss])
+		#
+		# v2.4.0: the DLC target stance. _kill_value keeps the ORIGINAL damage
+		# (killability is about the body, not about the stance) and the signed
+		# knob then scales it (engage) or zeroes it (avoid). Only non-Boss
+		# bodies get the TARGET-value treatment: an elite is not a fight the
+		# bot chose to pick, and multiplying its target value would pull the
+		# bot into its face -- the opposite of what the default stance should
+		# do to an elite. Bosses still get the avoid side on the threat damage
+		# (scaled in _add_unit before this block), which is all "keep away"
+		# needs. When both kinds apply, engage multipliers multiply and either
+		# avoid zeroes the value.
+		var tv = _kill_value(unit, damage)
+		if not (unit is Boss):
+			if cursed and curse_mult > 0.0:
+				tv *= curse_mult
+			if evolved and evolved_mult > 0.0:
+				tv *= evolved_mult
+			if (cursed and curse_mult < 0.0) or (evolved and evolved_mult < 0.0):
+				tv = 0.0
+		targets.push_back([unit.position, tv, unit is Boss])
 
 	if dist_sq >= range_sq:
 		return    # too far to threaten us this horizon
 
 	var corridor = _dash_corridor(unit)
 	if not corridor.empty():
+		corridor[3] = threat_damage
 		threats.push_back(corridor)
 		return    # a dashing body is described by its dash, not by its walk
 
@@ -1494,7 +1828,7 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 	# arbiter can only price it if it knows the range and the remaining time.
 	var ab = unit._current_attack_behavior
 	if ab is ChargingAttackBehavior:
-		chargers.push_back([unit.position, float(ab.max_range), damage,
+		chargers.push_back([unit.position, float(ab.max_range), threat_damage,
 				max(ab._current_cd, 0.0) / 60.0])    # _current_cd counts frames
 
 	# Model the walker as moving at its own speed toward wherever it is headed.
@@ -1532,7 +1866,7 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 	var health = 20.0
 	if unit.current_stats and unit.current_stats.health > 0:
 		health = float(unit.current_stats.health)
-	threats.push_back([unit.position, chase, radius, damage, KIND_CONTACT, 0.0,
+	threats.push_back([unit.position, chase, radius, threat_damage, KIND_CONTACT, 0.0,
 			_contact_ticks(unit_speed), INF_TIME,
 			_kill_ref / (_kill_ref + health)])
 

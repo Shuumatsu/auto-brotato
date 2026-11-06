@@ -1,0 +1,8 @@
+{
+  "candidates": [
+    {"name": "control", "overrides": {"curse": 0, "evolved": 0, "evo": 0}},
+    {"name": "dlc", "overrides": {}},
+    {"name": "dlc_strong", "overrides": {"curse": 6.0, "evolved": 4.0}}
+  ],
+  "note": "v2.4.0 DLC A/B round 2 (see scenarios_dlc2.json). control = exact 2.3.0 behaviour; dlc = shipped defaults; dlc_strong = more aggressive engage stance."
+}

@@ -1,0 +1,9 @@
+{
+  "candidates": [
+    {"name": "control", "overrides": {"curse": 0, "evolved": 0, "evo": 0}},
+    {"name": "dlc", "overrides": {}},
+    {"name": "dlc_strong", "overrides": {"curse": 6.0, "evolved": 4.0}},
+    {"name": "avoid", "overrides": {"curse": -1.0}}
+  ],
+  "note": "v2.4.0 DLC A/B candidates (design §3.1/§5.2). Each overrides dict is written verbatim to user://auto-battler-overrides.json and merged into the v2.4.0 arbiter overrides; older builds (e.g. 2.3.0 baseline) ignore unknown keys. control = every new DLC feature off, must be exactly the old 2.3.0 behaviour (--arb-curse=0 --arb-evolved=0 --arb-evo=0). dlc = empty dict = the new shipped defaults (curse=3.0 target-value multiplier, evolved=2.5, evo=1.0 pickup values). dlc_strong = more aggressive engage (curse=6.0, evolved=4.0, evo stays at the default 1.0) to test in one batch whether the defaults are strong enough. avoid = curse=-1.0: cursed enemies get target value 0 and x2 threat damage (deliberate avoidance posture); other DLC features stay default. Semantics: v>0 target value x v (engage more), v<0 target value 0 + threat x(1+|v|), v==0 exact old behaviour."
+}

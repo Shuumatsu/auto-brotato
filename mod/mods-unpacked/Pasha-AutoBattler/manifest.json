@@ -1,8 +1,8 @@
 {
 	"name": "AutoBattler",
 	"namespace": "Pasha",
-	"version_number": "2.3.0",
-	"description": "Movement-only autopilot for Brotato (MIT fork of BOTato, tested on 1.2.0.1). Auto-moves/dodges/collects during waves; every decision stays manual. Behaviour priors are inferred from measured build traits (no per-character table needed). v2.3.0: keeps ranged standoff, fells trees/eats fruit when hurt, 2-ply lookahead planner + hit-adaptive caution. Toggle with Shift+Space.",
+	"version_number": "2.4.0",
+	"description": "Movement-only autopilot for Brotato (MIT fork of BOTato, tested on 1.2.0.1). Auto-moves/dodges/collects during waves; every decision stays manual. Behaviour priors are inferred from measured build traits (no per-character table needed). v2.4.0: DLC-aware — engages cursed enemies (DLC1) and evolved meca/mutant enemies (DLC2) by default, and walks over the Primal Dread evolution consumables (meca/mutant fruit, mutation fruit, meca parts); both stances are adjustable, including an avoid mode. v2.3.0: ranged standoff, trees/hurt fruit, 2-ply planner + hit-adaptive caution. Toggle with Shift+Space.",
 	"website_url": "https://github.com/boardengineer/botato",
 	"dependencies": [],
 	"optional_dependencies": [],
