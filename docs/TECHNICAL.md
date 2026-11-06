@@ -179,6 +179,16 @@ cd auto-brotato
     `cov` 在 `opp=0` 下不生效；`tapcd` 在 movement 层，回退老版本时需一并置 0）。
   - **精确 v2.7.0**：`--arb-cov=0 --arb-tapcd=0`（其余默认）。**精确 v2.6.1**：
     `--arb-opp=0 --arb-cov=0 --arb-tapcd=0`（`cov` 在 `opp=0` 下不生效，写 0 只为契约完整）。
+- v2.9.0 经济目标层开关（默认开）：
+  - `--arb-econ=<0|1>`（默认 `1`）：经济目标层总开关。`0` = **精确 v2.8.0**（不写新 reward
+    flags 字段、不走 `economy.gd`/`econ_planner.gd`，arbiter 走 v2.8 opportunity 路径）。
+  - 调参键（默认即游戏数据推导值）：`--arb-econhpfloor`（HP 地板 0.2）、`--arb-econrisk`
+    （风险基准 0.6）、`--arb-econriskhp`（HP 越低风险权重增量 2.4）、`--arb-econmarg`（承诺
+    阈值 0.3）、`--arb-econeta`（ETA 成本 0.5）、`--arb-econdeadline`（deadline margin 1.5s）、
+    `--arb-econboost`（deadline 提升 2.0）、`--arb-econcap`（deadline 上限 3.0）、
+    `--arb-econsweep`（波末清理窗口 6s）、`--arb-econrange`（资源视野 ≥900，默认 2000px）、
+    `--arb-econcands`（候选上限，默认 60）、`--arb-econxp`（每 material 的 XP 折算 0.2）。
+  - **精确 v2.4.0 控制臂（16 个开关全 0）**：上述 15 个 + `--arb-econ=0`。
 - 若发现角色不动：先看 HUD 是否 `ON`；再确认 mod 是否被加载
   （`~/Library/Application Support/Brotato/logs/modloader.log` 里应有 `Pasha-AutoBattler`）。
 
@@ -806,6 +816,47 @@ S1/S2/S3（真实武器射程 260px，进入 `max(weapon_range×0.9, 70) + 40 = 
 
 ## 六、验证状态（诚实说明）
 
+> **2026-11-06 起，离线验收的权威入口是仓库内 tracked 的 `tests/`**（`GODOT_BIN=<godot-3.6.x> bash tests/run_all.sh`）：
+> 冻结参考用 `git show <pinned-commit>` 生成、脚本以 `RESULT ... PASS` 为唯一成功条件、失败非 0；
+> clean clone（无 `_research/`、无 `dist/`）实测 6 套件全绿。下文 v2.2–v2.8 的数字是**历史记录**
+> （当时 harness 位于 gitignored `_research/`，其中部分声称已在 v2.8.0 commit 上被审计证伪，
+> 详见 [REVIEW-v3.md](REVIEW-v3.md)）：例如 v2.8 “world_view 探针 32/32” 实际在 HEAD 上是 32/2 且
+> 脚本不 gate（用 `git show HEAD` 冒充冻结 `e933740` 参考）；dlc-selftest 在 HEAD 上是红的。
+> 当前 tracked gate 覆盖：解析门禁、planner 470 + falsifier 2476、gate 32、world_view 固定参考 32、
+> 闭环 sim 74 条机器断言、经济目标层单帧/闭环断言。
+
+### v2.9.0 离线验收（2026-11-06，review-v3）
+
+**结构性重构（Step1，行为保持）**
+
+- `contract.gd`（tuple/枚举单一契约）、`config.gd`（唯一 `--arb-*` 解析器，96 key，修复
+  `sweep`/`orbit` 冲突；旧 key 语义保留 + granular key）落地；`world_view`/`arbiter` 裸 tuple
+  索引清零；`player_movement_behavior.gd` 356→123 行。
+- 等价证据：闭环 sim 输出与 HEAD 基线**逐字节相同**（616 行）；planner 470/0、gate 32/0、
+  world_view 固定参考 32/0、dlc-selftest 297/0、Config 字段等价 220/0、机械一致性 73/0。
+  证据：`_research/review-v3/arch/STEP1-RESULT.md` 与 `step1/`。
+
+**验证基建（Step3，commit `a247503`）**
+
+- `tests/` tracked（93 文件）+ CI `test` job；clean clone 全绿：
+  check_gd 1s（mod 全部 `.gd`）/ selftest 12s / planner 470+2476 7s / gate 32 24s /
+  world_view 32 1s / sim 74 断言 321s。
+- 反向验证：`REF_V27_COMMIT=HEAD` → 470/9 FAIL；`GATE_REF=HEAD` → 32/3；`REF_WORLDVIEW_COMMIT=dcb6e39`
+  → 32/1；run_all 正确传播非 0。详见 `_research/review-v3/verify/STEP3-RESULT.md`。
+
+**经济目标层（Step2，`--arb-econ` 默认 1）**
+
+- `--arb-econ=0` 控制臂：单帧 probe 对冻结 v2.8.0（`git show e10aae1`）5 个场景的
+  targets/threats/rewards/profile/决策方向**逐值相同**（经济审计离线运行）。
+- 游戏数据期望表（18 builds × 6 类 + 25 条可 falsify 断言）中可离线执行的 46 条方向断言 PASS
+  （如 generic 满血果不再为负、Vampire 受伤果≈0、Glutton 满血果≥0、Farmer 正且随波次折减、
+  Penguin/Cauldron 波内正值、meca/mutant/Veteran 标记 LOST_AT_HORN、box 不产生远距离波内绕路）。
+- 既有套件（经济审计离线运行，日志 `_research/review-v3/econ/logs/step2/`）：planner 470/0、
+  gate 32/0、world_view 固定参考 32/0、dlc-selftest 297/0。
+- **未完成/待补**：闭环经济 sim 的 econ=0 vs econ=1 矩阵（宿主内存耗尽、Godot fork 失败被中断）、
+  tracked `tests/econ` 接入与完整 `tests/run_all.sh`（hosted CI 尚未首跑）、真实游戏 A/B。
+  经济层是默认 ON 的，但 `--arb-econ=0` 可精确回退 v2.8.0；真机验证前不建议把默认值当作已调优结果。
+
 ### v2.8.0 离线验收（2026-11-06，第五轮）
 
 - `_research/tools/check_gd.sh` → **CHECK PASSED（3 个真源文件：arbiter / world_view /
@@ -1040,9 +1091,17 @@ auto-brotato/
 ├── README.md                    # 项目主页（简短宣传）
 ├── docs/TECHNICAL.md            # 本文件（详细技术文档）
 ├── install.sh                   # 安装/卸载（Steam 工坊注入 / 非 Steam mods 目录）
-├── build.sh                     # 构建 dist/AutoBattler-2.8.0-fork.zip
+├── build.sh                     # 构建 dist/AutoBattler-2.9.0-fork.zip
+├── tests/                       # tracked 离线验收（clean clone 可跑）
+│   ├── run_all.sh               #   GODOT_BIN=... bash tests/run_all.sh
+│   ├── tools/                   #   解析门禁（全部 mod .gd）
+│   ├── planner/ gate/           #   arbiter selftest + falsifier + 闭环门禁
+│   ├── worldview/               #   world_view 固定参考探针（econ=0 控制臂）
+│   ├── sim/                     #   闭环 no-regression 矩阵 + 断言
+│   └── README.md                #   套件/覆盖矩阵/限制
+├── docs/REVIEW-v3.md            # v2.9.0 实现质量审查报告（review-v3）
 ├── dist/
-│   └── AutoBattler-2.8.0-fork.zip
+│   └── AutoBattler-2.9.0-fork.zip
 ├── mod/                         # Mod 源码（zip 内容）
 │   ├── LICENSE                  # 上游 BOTato MIT 许可
 │   ├── README-FORK.md           # 随 zip 分发的说明
@@ -1051,7 +1110,13 @@ auto-brotato/
 │       ├── mod_main.gd          # 只安装 2 个扩展
 │       ├── autobattler_options.gd  # 配置 + Shift+Space + HUD
 │       ├── extensions/...       # 2 个最小扩展
-│       └── steering/            # BOTato 走位 AI（arbiter + world_view）
+│       └── steering/            # 走位 AI 模块
+│           ├── contract.gd      #   tuple schema / 枚举 / econ flags 单一契约
+│           ├── config.gd        #   唯一 --arb-* 解析器（96 key）
+│           ├── economy.gd       #   v2.9 经济定价（纯数据）
+│           ├── econ_planner.gd  #   v2.9 全局经济规划（纯数据）
+│           ├── world_view.gd    #   感知层 facade（游戏状态 → tuple/ctx）
+│           └── arbiter.gd       #   决策层 facade（打分/选择/模式）
 └── _research/                   # 调研资料（非交付物）
     ├── api-map.md               # 反编译后的 API 映射与兼容性结论
     ├── audit.md                 # BOTato 自动决策审计 + 瘦身方案

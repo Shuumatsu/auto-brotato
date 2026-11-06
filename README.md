@@ -27,6 +27,22 @@
 - ✅ 只装 2 个最小扩展：**不会替你买、刷、锁、升级、开箱、点下一波**
 - ✅ 单人 Brotato 1.2.0.1 实机验证
 
+### v2.9.0 经济目标层 + 结构性重构（review-v3，第六轮）
+
+这一版把“走路目标”从“生存成本最小化 + 资源弱正则”改为**按获取途径定价的经济目标**，并做了一轮证据驱动的结构重构（详见 [docs/REVIEW-v3.md](docs/REVIEW-v3.md)）。
+
+| 问题 | 修复 |
+|---|---|
+| 经济项只是生存打分的 tie-breaker，且准入是“附近有怪就一票否决”的硬闸门 | **统一经济规划器**（`--arb-econ`，默认开）：每个资源按获取途径分类——`AUTO_AT_HORN`（金币/普通果子/物品箱/变异果/机械部件：**波末自动吸取本来就会付钱**，波内绕路只在有 pickup 触发效果时才有价值）、`LOST_AT_HORN`（机械果/异变果/Veteran 的果子：不捡就永远失去，全值 + 波末 deadline）、`MID_WAVE_ONLY`（临时 stat/衰减 buff/吃果爆炸：**波末吸取不触发**，只能波内主动吃）、`TREE`（未倒的树波末被销毁且不掉落 → 期望收益 + 波末紧迫）与特殊目标（沿用 v2.7 价值表）。风险准入从二元闸门改为**连续风险预算** `score = value − risk_weight(hp)·route_risk − eta_cost`（HP 越低风险权重越高，保留硬 HP 地板）。资源视野从 900px 扩到全图（最多 60 个候选）。 |
+| 满血果子被定价为 **-0.8（负成本主动回避）**；受伤果子按 `2.5×min(12,missing)` 定价，比真实治疗高约 10x；Vampire 等负治疗 build 被赋予幽灵治疗价值 | 治疗改为游戏真实公式 `max(0, 3 + consumable_heal)` 并 clamp 到 missing HP；Vampire(-100)/Golem(no_heal) 不再有幽灵治疗；满血永久 stat（Farmer/Glutton/Extra Stomach）改为“**提前 1 波**”的小正值（波末吸取同样触发，故不做高价值绕路）；Penguin（临时 regen）/Cauldron（衰减 buff）/Chef·Glutton·Spicy（吃果爆炸）等 **mid-wave-only** 效果给波内正值；Druid 的 `stats_on_fruit` 33% luck roll、金币 pickup 触发（Lucky/Baby Elephant 伤害、Buccaneer/Blunderbuss 装填、Cute Monkey 治疗、Metal Detector 翻倍、材料增值、Bag 箱金、武器级装填）纳入定价。 |
+| 物品箱/传奇箱被当成“一个 item choice”做波内绕路 | 箱子的 item choice 在**波末自动吸取时同样结算**，波内绕路不增加资源；波内价值只剩即时治疗（普通箱 3 / 传奇箱 100，受伤时是救命价值）与 Bag 的箱金。 |
+| 树在波末会真正损失却没有紧迫性 | 树价值 = 3 materials（受 `gold_drops` 修正）+ 期望消耗品（80% 果/20% 箱）+ 树机制（Explorer/Survivor 的 `trees`、`one_shot_trees`/`tree_turrets`），波末按 ETA 提升；Cryptid 的活树每棵波末 +12 materials → 砍树定价为负、不去砍。 |
+| 两个 3k 行单体、tuple 契约靠魔数、`--arb-*` 分散解析、旧势场控制器残骸 | `steering/contract.gd` 单一 tuple/枚举契约（`R_POS..R_TAG`、special class、econ flags）；`steering/config.gd` 唯一 `--arb-*` 解析器（96 key；旧 `--arb-sweep`/`--arb-orbit` 语义保留，新增 `--arb-bladeunion/--arb-sweepmat/--arb-orbitscan/--arb-orbitw` 细分）；新增 `steering/economy.gd`（纯定价）与 `steering/econ_planner.gd`（纯规划）；`player_movement_behavior.gd` 356→123 行（删除 85 个死 const/31 个死 var 与旧力场 telemetry）。`--arb-econ=0` = **精确 v2.8.0** 控制臂（不写新 tuple 字段、不走新规划器）。 |
+
+> v2.9.0 新增开关：`--arb-econ`（默认 1；0 = 精确 v2.8.0）。经济调参键（默认即游戏数据推导值）：`--arb-econhpfloor/--arb-econrisk/--arb-econriskhp/--arb-econmarg/--arb-econeta/--arb-econdeadline/--arb-econboost/--arb-econcap/--arb-econsweep/--arb-econrange/--arb-econcands/--arb-econxp`。完整控制臂列表见 [docs/TECHNICAL.md](docs/TECHNICAL.md)。
+>
+> 验证：离线验收体系已迁移到 **tracked `tests/`**（`GODOT_BIN=... bash tests/run_all.sh`，clean clone 可复现）：解析门禁（mod 全部 .gd）+ planner 470/0 + falsifier 2476/0 + gate 32/0 + world_view 固定参考 32/0 + 闭环 sim 74 条断言。经济层：`--arb-econ=0` 控制臂与冻结 v2.8.0 的 tuple/profile/方向逐值等价（5 场景），`--arb-econ=1` 的方向由游戏数据期望表 46/46 条断言覆盖（18 builds × 6 类中可离线执行部分）；**tracked `tests/econ`（闭环经济 sim）与真机 A/B 仍待补**（宿主资源耗尽中断了闭环验证；v2.5+ 默认值均无真机校准数据，详见 REVIEW-v3 的剩余风险）。
+
 ### v2.8.0 高价值目标全覆盖 + 实时攻击 CD 同步（第五轮试玩反馈）
 
 | 问题 | 修复 |

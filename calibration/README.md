@@ -207,9 +207,22 @@ python3 calibration/run_pilot.py --repeats 2 \
 2. **禁用范围修正**：除了注入目标，**所有**其它 item 的 zip 都要移到 `_disabled_by_calibration/`
    （包括用户已发布的 AutoBattler 整包）；跑完 `restore_mods()` 恢复。
 3. **日志名带 start_wave**：`..._d<difficulty>_w<start_wave>_r<rep>.log`，避免 D6 wave3 / D6 wave6
-   两个场景互相覆盖逐秒日志；CSV 增加 `start_wave` / `speed` 列。
+   两个场景互相覆盖逐秒日志。（注意：`run_pilot.py` 的 `FIELDS` 目前不含 `start_wave`/`speed`
+   列；此前的“CSV 增加该两列”说法与代码不符，已由 review-v3 审计指出。）
 4. 注入目标是别人的工坊 item：`cleanup_test_mods()` 现在也会删掉注入进去的 `AutoBattler-*.zip`，
    恢复时把原 item 内容放回。
+
+## v2.9.0 经济目标层 A/B（真机，待跑）
+
+v2.9 默认开启 `--arb-econ=1`（经济目标层；`--arb-econ=0` = 精确 v2.8.0 回退臂）。离线验收见
+`docs/REVIEW-v3.md` 与 `docs/TECHNICAL.md` §六：单帧控制臂等价（对冻结 v2.8.0 逐值 IDENTICAL）
+与 gamedata 方向断言 46/46 已完成；**闭环经济 sim 与真机 A/B 尚未跑**（宿主资源耗尽中断）。
+真机 A/B 建议在 `candidates_v250.json` 基础上增加：
+- `econ` = 空 overrides（v2.9 出厂默认）；
+- `no_econ` = `{econ:0}`（精确 v2.8.0 归因臂）；
+- 指标除现有 clear/dmg/min_hp 外，重点是 **每波地面残留**（`ground=`/`trees=`/`fruit=`）与
+  `gold=` 是否比 v2.8 更合理（预期 auto-vacuum 资源不必要的绕路减少、LOST_AT_HORN 资源收集增加），
+  以及 `min_hp`/存活不退化。日志/CSV 需补 build provenance（commit/version），否则无法反查构建。
 
 ## v2.8.0 高价值覆盖 / 实时 CD 同步 A/B（真机，待跑）
 
