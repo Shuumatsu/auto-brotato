@@ -1,0 +1,2 @@
+class_name BuilderTurret
+extends Node2D

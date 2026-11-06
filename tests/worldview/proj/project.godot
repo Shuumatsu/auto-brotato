@@ -1,0 +1,94 @@
+; Offline GDScript parse check for Pasha-AutoBattler steering scripts.
+; This is a minimal stub project: it only exists so that Godot 3.6 can
+; resolve the game's autoload singletons and global classes while parsing
+; world_view.gd / arbiter.gd outside of Brotato.
+; NOTE: the _global_script_classes entries must stay at top level (before
+; any [section]) -- ProjectSettings reads them as a root-level setting.
+
+config_version=4
+
+_global_script_classes=[ {
+"base": "Node2D",
+"class": "Boss",
+"language": "GDScript",
+"path": "res://stubs/class_boss.gd"
+}, {
+"base": "Node2D",
+"class": "BuilderTurret",
+"language": "GDScript",
+"path": "res://stubs/class_builder_turret.gd"
+}, {
+"base": "Reference",
+"class": "ChargingAttackBehavior",
+"language": "GDScript",
+"path": "res://stubs/class_charging_attack_behavior.gd"
+}, {
+"base": "Reference",
+"class": "EntityType",
+"language": "GDScript",
+"path": "res://stubs/class_entity_type.gd"
+}, {
+"base": "Node2D",
+"class": "Hitbox",
+"language": "GDScript",
+"path": "res://stubs/class_hitbox.gd"
+}, {
+"base": "Node2D",
+"class": "Pivot",
+"language": "GDScript",
+"path": "res://stubs/class_pivot.gd"
+}, {
+"base": "Area2D",
+"class": "Projectile",
+"language": "GDScript",
+"path": "res://stubs/class_projectile.gd"
+}, {
+"base": "Reference",
+"class": "RangedWeaponStats",
+"language": "GDScript",
+"path": "res://stubs/class_ranged_weapon_stats.gd"
+}, {
+"base": "Reference",
+"class": "SpawningAttackBehavior",
+"language": "GDScript",
+"path": "res://stubs/class_spawning_attack_behavior.gd"
+}, {
+"base": "Node2D",
+"class": "Unit",
+"language": "GDScript",
+"path": "res://stubs/class_unit.gd"
+} ]
+
+_global_script_class_icons={
+"Boss": "",
+"BuilderTurret": "",
+"ChargingAttackBehavior": "",
+"EntityType": "",
+"Hitbox": "",
+"Pivot": "",
+"Projectile": "",
+"RangedWeaponStats": "",
+"SpawningAttackBehavior": "",
+"Unit": ""
+}
+
+[application]
+
+config/name="godot-check-stubs"
+
+[autoload]
+
+CrashReporter="*res://stubs/autoload_crash_reporter.gd"
+Platform="*res://stubs/autoload_platform.gd"
+Keys="*res://stubs/autoload_keys.gd"
+Utils="*res://stubs/autoload_utils.gd"
+ZoneService="*res://stubs/autoload_zone_service.gd"
+RunData="*res://stubs/autoload_run_data.gd"
+DebugService="*res://stubs/autoload_debug_service.gd"
+ItemService="*res://stubs/autoload_item_service.gd"
+WeaponService="*res://stubs/autoload_weapon_service.gd"
+EntityService="*res://stubs/autoload_entity_service.gd"
+TempStats="*res://stubs/autoload_temp_stats.gd"
+LinkedStats="*res://stubs/autoload_linked_stats.gd"
+SoundManager="*res://stubs/autoload_sound_manager.gd"
+Text="*res://stubs/autoload_text.gd"
