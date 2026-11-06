@@ -2,6 +2,10 @@
 
 日期：2026-11-06。审查基线：`e10aae1`（AutoBattler v2.8.0），Brotato 1.2.0.1 / Godot 3.6.1。
 交付 commit：`a247503`（tracked tests + CI）、`4d39995`（v2.9.0 代码 + 控制臂 pin）、`2c04983`（文档/审查报告）。
+**GitHub Release**：`v2.9.0` 已发布 — https://github.com/Shuumatsu/auto-brotato/releases/tag/v2.9.0
+（资产 `AutoBattler-v2.9.0.zip`，CI 构建 SHA256 `1fc6764f011141ac81f3a39169fef3ab49c3bb0aef0bc34f4aba48f3b675e824`；
+本地重建内容逐文件一致、压缩字节因 mtime 不同属预期，见 §5 风险 5）。CI 的 `build` 与首次
+`test` job（tracked tests：check_gd / planner 470+2476 / gate 32 / worldview 32 / sim 74）均绿。
 
 本审查遵循的纪律：
 
