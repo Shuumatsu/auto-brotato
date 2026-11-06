@@ -1,6 +1,7 @@
 # AutoBattler v2.9 — 系统性实现质量审查（review-v3）
 
 日期：2026-11-06。审查基线：`e10aae1`（AutoBattler v2.8.0），Brotato 1.2.0.1 / Godot 3.6.1。
+交付 commit：`a247503`（tracked tests + CI）、`4d39995`（v2.9.0 代码 + 控制臂 pin）、`2c04983`（文档/审查报告）。
 
 本审查遵循的纪律：
 
@@ -153,6 +154,14 @@
 
 另：`.github/workflows/build.yml` 的 `test` job 已就位但**尚未在 GitHub runner 首跑**（本地等价验证
 = clean clone + 本机 Godot 3.6.1）；CI 首跑后需确认 linux headless 行为一致（尤其 `GODOT_ARGS=""`）。
+
+**2026-11-07 00:30 提交后 Lead 复跑（当前 v2.9.0 工作树）**：
+
+- `tests/run_all.sh` 分套执行：check_gd **targets=10 loaded=10 PASS**、worldview **32/0 PASS**、
+  planner **470/0 + falsifier 2476/0 PASS**、gate **32/0 PASS**；
+- sim：单场景 `ring14_fast` 的 v28 行与 v27 **逐字段相同**（legacy 路径未受 econ 影响）；
+  **完整 52 次调用矩阵未跑完**（宿主 `fork: Resource temporarily unavailable` 中断）；
+- `bash build.sh` 同样因宿主 fork 失败未产出 zip（CI 会构建；版本字符串已同步 2.9.0）。
 
 ### 已知剩余风险
 
