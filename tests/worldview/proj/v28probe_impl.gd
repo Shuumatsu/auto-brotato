@@ -65,7 +65,16 @@ func make_world(enemies = [], bosses = [], neutrals = [], consumables = []):
 
 
 func gather_with(script, overrides, main, player):
-	return h._gather(script, main, player, overrides)
+	# v2.9 (task-8): this probe's expectations are the v2.8.0 world_view contract.
+	# The econ objective layer defaults to ON since v2.9 and intentionally changes
+	# food/gold/tree/box pricing and appends a reward flags field, so the legacy
+	# arms pin the exact v2.8.0 control arm here (the frozen ref ignores the key).
+	# --arb-econ=1 is covered by the economy suite (tests/econ).
+	var merged = {"econ": 0}
+	if overrides is Dictionary:
+		for k in overrides.keys():
+			merged[k] = overrides[k]
+	return h._gather(script, main, player, merged)
 
 
 func target_at(view, pos):

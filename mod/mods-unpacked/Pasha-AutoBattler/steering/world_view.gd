@@ -1,5 +1,12 @@
 extends Reference
 
+# Tuple layout / vocabulary contract: single source of truth (task-5).
+const Contract = preload("res://mods-unpacked/Pasha-AutoBattler/steering/contract.gd")
+# Single --arb-* override parser (task-5).
+const Config = preload("res://mods-unpacked/Pasha-AutoBattler/steering/config.gd")
+const Economy = preload("res://mods-unpacked/Pasha-AutoBattler/steering/economy.gd")
+const EconPlanner = preload("res://mods-unpacked/Pasha-AutoBattler/steering/econ_planner.gd")
+
 # Turns live game state into the plain arrays the arbiter scores.
 #
 # The split is deliberate: everything that knows about Brotato's node layout
@@ -7,7 +14,7 @@ extends Reference
 # replayable offline against recorded states, which is what weight tuning and
 # any later learned scorer both need.
 
-const BODY_RADIUS_FALLBACK = 20.0
+const BODY_RADIUS_FALLBACK = Contract.BODY_RADIUS_FALLBACK
 const THREAT_RANGE = 620.0       # threats past this cannot reach us inside the horizon
 const PICKUP_RANGE = 900.0
 const STATIONARY_SPEED_SQ = 100.0
@@ -69,12 +76,18 @@ const DEFAULT_PROJ_DAMAGE = 6.0
 const DEFAULT_CONTACT_DAMAGE = 5.0
 const AOE_DAMAGE = 10.0
 
-# Reuse the arbiter's tuple layout.
-const KIND_PROJ = 0
-const KIND_CONTACT = 1
-const KIND_DASH = 2
-const KIND_AOE = 3
-const KIND_MARK = 4              # spawn-marker keep-out; contact-priced only
+# Tuple layout / vocabulary: single source of truth is steering/contract.gd
+# (Step-1 refactor; the values used to be duplicated here and in arbiter.gd).
+# Local aliases keep the hot paths on compile-time constants.
+const KIND_PROJ = Contract.KIND_PROJ
+const KIND_CONTACT = Contract.KIND_CONTACT
+const KIND_DASH = Contract.KIND_DASH
+const KIND_AOE = Contract.KIND_AOE
+const KIND_MARK = Contract.KIND_MARK          # spawn-marker keep-out; contact-priced only
+const T_DAMAGE = Contract.T_DAMAGE
+const T_START = Contract.T_START
+const TG_POS = Contract.TG_POS
+const TG_SPECIAL = Contract.TG_SPECIAL
 
 const TARGET_EXTRA = 220.0       # targets are collected this far past weapon range,
                                  # matching the arbiter's acquisition band
@@ -250,7 +263,6 @@ const LOOT_BOUNTY_VALUE = 6.0    # loot alien when bounty is on (>= GOAL_MIN_VAL
 # small (the arbiter's acquisition is O(candidates x threats) only on decision
 # frames, but there is no reason to carry the whole map).
 # --arb-opp=0 is the exact v2.6.1 control arm (old radius, old tuple arity).
-const OPP_ENABLE = 1.0
 const OPP_SPECIAL_RANGES = [900.0, 1400.0, 1600.0]   # by --arb-agg 0/1/2
 const OPP_SPECIAL_MAX = 8
 const OPP_LOOT_VALUE = 8.0       # fleeing loot alien once the opportunity layer
@@ -266,13 +278,12 @@ const OPP_LOOT_VALUE = 8.0       # fleeing loot alien once the opportunity layer
 # cooldown so fire_still kits can stop exactly when a weapon is ready
 # (--arb-tapcd) instead of the fixed 2-move/2-stop cycle.
 # `opp=0` -> no tags, no class 4, exact v2.6.1 tuples; `cov=0` -> exact v2.7.0.
-const COV_ENABLE = 1.0
 const TAP_CD_ENABLE = 1.0
-const OPP_TAG_CRATE = 1          # reward[6]: normal item crate
-const OPP_TAG_LEGENDARY = 2      # reward[6]: legendary item crate
-const OPP_TAG_EVO = 3            # reward[6]: evolution consumable
-const OPP_TAG_LOOT = 4           # reward[6]: fleeing loot alien
-const OPP_TAG_TREE = 5           # reward[6]: tree (living, felled by walking)
+const OPP_TAG_CRATE = Contract.OPP_TAG_CRATE          # reward[R_TAG]: normal item crate
+const OPP_TAG_LEGENDARY = Contract.OPP_TAG_LEGENDARY  # reward[R_TAG]: legendary crate
+const OPP_TAG_EVO = Contract.OPP_TAG_EVO              # reward[R_TAG]: evolution consumable
+const OPP_TAG_LOOT = Contract.OPP_TAG_LOOT            # reward[R_TAG]: fleeing loot alien
+const OPP_TAG_TREE = Contract.OPP_TAG_TREE            # reward[R_TAG]: tree (felled by walking)
 const BOX_VALUE = 5.0            # a normal item crate: one item choice
 const LEGENDARY_BOX_VALUE = 10.0 # legendary crate: one legendary item choice
 const BIRTH_STEP_COST = 4.0      # avoid_births: a red X priced as a small standing AoE.
@@ -378,6 +389,20 @@ var last_cursed_n = 0
 var last_evolved_n = 0
 var last_evo_ground_n = 0
 var _dlc_log_ms = -1000000       # OS.get_ticks_msec of the last BOTLOG DLC line (rate limit)
+var _cfg = null                 # persistent Config for the compatibility apply_overrides()
+var _cfg_profile_mode = ""      # --arb-profile value parsed by Config.parse()
+# -- v2.9 economy objective layer (see steering/economy.gd) ------------------
+var econ = 0.0                  # --arb-econ: 1 = economy layer ON, 0 = exact
+                                # v2.8.0. The shipped shell's Config.parse sets
+                                # the default 1; a bare instance (offline
+                                # harnesses) stays on the legacy path unless the
+                                # caller passes {"econ": 1}.
+var econ_module = null          # Economy instance (created lazily)
+var econ_candidates = []        # planner input: [{pos, value, flags, tag, cls}]
+var last_econ_ctx = {}          # probe/telemetry: the ctx used by the last gather
+var _econ_ctx = {}              # per-gather ctx shared with the economy helpers
+var econ_planner = null         # EconPlanner instance (created lazily)
+var _econ_plan_state = {}       # planner commitment -> profile["econ"]
 
 # -- The table --
 #
@@ -830,7 +855,7 @@ var _kill_ref_logged = -1e9      # last value announced on BOTLOG DPSREF
 # through the same --arb-* override dictionary as every other switch; opp=0
 # restores the exact v2.6.1 gather output (old target radius, old tuple arity,
 # old loot value/2-tuple).
-var opp_enable = OPP_ENABLE
+var opp_enable = Config.OPP_ENABLE_DEFAULT
 var opp_agg = 1.0
 var _special_range_sq = 0.0      # squared special-target gather radius, 0 = off
 var _loot_prev = {}              # loot-alien instance_id -> [pos, ticks_ms]
@@ -838,7 +863,7 @@ var _loot_seen = {}              # ids seen this gather (cache pruning)
 var _loot_wave = -1              # wave the loot cache belongs to
 
 # v2.8.0 switches / live weapon state (see the COV_ block above).
-var cov_enable = COV_ENABLE      # --arb-cov: high-value coverage values/tags
+var cov_enable = Config.COV_ENABLE_DEFAULT  # --arb-cov: high-value coverage values/tags
 var tap_cd = TAP_CD_ENABLE       # --arb-tapcd: expose fire_wait_frames to the
                                  # movement behaviour (0 = fixed 2+2 tap)
 var fire_wait_frames = -1.0      # min live `_current_cooldown` over current
@@ -966,150 +991,163 @@ func _aoe_profile(anim) -> Dictionary:
 	return profile
 
 
-func apply_overrides(d: Dictionary) -> void:
+func apply_config(cfg, log_dict = null) -> void:
+	# Step-1: every value comes from the single Config parser (steering/config.gd).
+	persist_max = cfg.persist_max
+	aoe_clock = cfg.aoe_clock
+	aoe_mult = cfg.aoe_mult
+	blade_split = cfg.blade_split
+	sweep_union = cfg.sweep_union
+	sine_sample = cfg.sine_sample
+	moving_clock = cfg.moving_clock
+	orbit_scan = cfg.orbit_scan
+	moving_blade = cfg.moving_blade
+	bonus_speed_scan = cfg.bonus_speed_scan
+	dps_ref_scan = cfg.dps_ref_scan
+	char_profile = cfg.char_profile
+	gold_value_override = cfg.gold_value_override
+	gold_pickup_draw = cfg.gold_pickup_draw
+	anchor_inner_override = cfg.anchor_inner_override
+	leash_override = cfg.leash_override
+	engage_hp_override = cfg.engage_hp_override
+	caution_mult = cfg.caution_mult
+	tree_mult = cfg.tree_mult
+	food_mult = cfg.food_mult
+	sweep_override = cfg.sweep_override
+	dash_fix = cfg.dash_fix
+	revive_mult = cfg.revive_mult
+	center_mode_override = cfg.center_mode_override
+	curse_mult = cfg.curse_mult
+	evolved_mult = cfg.evolved_mult
+	evo_mult = cfg.evo_mult
+	walk_tag = cfg.walk_tag
+	waveend_mult = cfg.waveend_mult
+	bounty_tag = cfg.bounty_tag
+	boxes_mult = cfg.boxes_mult
+	windup_priced = cfg.windup_priced
+	hitbox_scan = cfg.hitbox_scan
+	opp_enable = cfg.opp_enable
+	opp_agg = cfg.opp_agg
+	cov_enable = cfg.cov_enable
+	tap_cd = cfg.tap_cd
+	econ = cfg.econ
+	if econ_module == null:
+		econ_module = Economy.new()
+	econ_module.apply_config(cfg)
+	if econ_planner == null:
+		econ_planner = EconPlanner.new()
+	econ_planner.apply_config(cfg)
+	_cfg_profile_mode = cfg.profile_mode
+	if log_dict != null:
+		_log_overrides(log_dict)
+
+
+# Debug-only compatibility: reproduce the per-key WORLDVIEW log lines the old
+# in-module parser printed (same text/format/order), reading the fields just set.
+func _log_overrides(d: Dictionary) -> void:
 	if d.has("persist"):
-		persist_max = max(float(d["persist"]), 1.0)
 		print("WORLDVIEW persist_max=%.2f" % persist_max)
 	if d.has("aoeclock"):
-		aoe_clock = float(d["aoeclock"])
 		print("WORLDVIEW aoe_clock=%.0f" % aoe_clock)
 	if d.has("aoemult"):
-		aoe_mult = float(d["aoemult"])
 		print("WORLDVIEW aoe_mult=%.2f" % aoe_mult)
 	if d.has("blade"):
-		blade_split = float(d["blade"])
 		print("WORLDVIEW blade_split=%.0f" % blade_split)
 	if d.has("sweep"):
-		sweep_union = float(d["sweep"])
 		print("WORLDVIEW sweep_union=%.0f" % sweep_union)
 	if d.has("sine"):
-		sine_sample = float(d["sine"])
 		print("WORLDVIEW sine_sample=%.0f" % sine_sample)
 	if d.has("movingclock"):
-		moving_clock = float(d["movingclock"])
 		print("WORLDVIEW moving_clock=%.0f" % moving_clock)
 	if d.has("orbit"):
-		orbit_scan = float(d["orbit"])
 		print("WORLDVIEW orbit_scan=%.0f" % orbit_scan)
 	if d.has("mblade"):
-		moving_blade = float(d["mblade"])
 		print("WORLDVIEW moving_blade=%.0f" % moving_blade)
 	if d.has("bonusspeed"):
-		bonus_speed_scan = float(d["bonusspeed"])
 		print("WORLDVIEW bonus_speed_scan=%.0f" % bonus_speed_scan)
 	if d.has("dpsref"):
-		dps_ref_scan = float(d["dpsref"])
 		print("WORLDVIEW dps_ref_scan=%.0f" % dps_ref_scan)
 	if d.has("charprofile"):
-		char_profile = float(d["charprofile"])
 		print("WORLDVIEW char_profile=%.0f" % char_profile)
 	if d.has("goldval"):
-		gold_value_override = float(d["goldval"])
 		print("WORLDVIEW gold_value_override=%.2f" % gold_value_override)
 	if d.has("golddraw"):
-		gold_pickup_draw = float(d["golddraw"])
 		print("WORLDVIEW gold_pickup_draw=%.2f" % gold_pickup_draw)
 	if d.has("inner"):
-		anchor_inner_override = float(d["inner"])
 		print("WORLDVIEW anchor_inner_override=%.0f" % anchor_inner_override)
 	if d.has("leash"):
-		leash_override = float(d["leash"])
 		print("WORLDVIEW leash_override=%.0f" % leash_override)
 	if d.has("engagehp"):
-		engage_hp_override = float(d["engagehp"])
 		print("WORLDVIEW engage_hp_override=%.2f" % engage_hp_override)
 	if d.has("caution"):
-		caution_mult = float(d["caution"])
 		print("WORLDVIEW caution_mult=%.2f" % caution_mult)
 	if d.has("tree"):
-		# v2.3.0: multiplier on the default living-tree value. 0 = old
-		# behaviour, where only characters with a tree mechanic felled trees.
-		tree_mult = float(d["tree"])
 		print("WORLDVIEW tree_mult=%.2f" % tree_mult)
 	if d.has("food"):
-		# v2.3.0: multiplier on a consumable's value while hurt. 0 = old
-		# unscaled value, so the control arm is exact rather than approximate.
-		food_mult = float(d["food"])
 		print("WORLDVIEW food_mult=%.2f" % food_mult)
 	if d.has("sweep"):
-		sweep_override = float(d["sweep"])
 		print("WORLDVIEW sweep_override=%.2f" % sweep_override)
 	if d.has("dashfix"):
-		dash_fix = float(d["dashfix"])
 		print("WORLDVIEW dash_fix=%.0f" % dash_fix)
 	if d.has("revive"):
-		revive_mult = float(d["revive"])
 		print("WORLDVIEW revive_mult=%.2f" % revive_mult)
 	if d.has("centermode"):
-		# Startup args parse as floats, so the mode switch is numeric: a
-		# nonzero value turns a perimeter row into a CENTER anchor with that
-		# leash radius -- the A/B for "rim orbit vs room to dodge".
-		center_mode_override = float(d["centermode"])
 		print("WORLDVIEW center_mode_override=%.0f" % center_mode_override)
 	if d.has("curse"):
-		# v2.4.0: signed stance on cursed enemies. >0 = target value x v
-		# (engage), <0 = avoid (target 0, threat damage x(1+|v|)), 0 = exact
-		# v2.3.0 control arm.
-		curse_mult = float(d["curse"])
 		print("WORLDVIEW curse_mult=%.2f" % curse_mult)
 	if d.has("evolved"):
-		# Same signed stance for meca/mutant (evolved) enemies.
-		evolved_mult = float(d["evolved"])
 		print("WORLDVIEW evolved_mult=%.2f" % evolved_mult)
 	if d.has("evo"):
-		# v2.4.0: multiplier on the evolution-pickup values. 0 restores the
-		# old food-only pricing exactly, so it is the A/B control arm.
-		evo_mult = float(d["evo"])
 		print("WORLDVIEW evo_mult=%.2f" % evo_mult)
 	if d.has("walk"):
-		# v2.5.0: 0 = do NOT append the 5th tuple field, i.e. write the v2.4
-		# [pos, value, false, rim] tuple verbatim. Together with the Lead's
-		# arbiter (r[4] distinguishes walk-on from held) this is the exact
-		# "held parking vs walk-on pickup" control arm.
-		walk_tag = float(d["walk"])
 		print("WORLDVIEW walk_tag=%.0f" % walk_tag)
 	if d.has("waveend"):
-		# v2.5.0: 0 = no end-of-wave urgency scaling on meca/mutant fruit.
-		waveend_mult = float(d["waveend"])
 		print("WORLDVIEW waveend_mult=%.2f" % waveend_mult)
 	if d.has("bounty"):
-		# v2.6.0: 0 = no special-target tag on target tuples and the 2.5.0
-		# loot-alien value; exact control arm for the bounty layer.
-		bounty_tag = float(d["bounty"])
 		print("WORLDVIEW bounty_tag=%.0f" % bounty_tag)
 	if d.has("boxes"):
-		# v2.6.0: 0 = item crates keep their 2.5.0 healing-only pricing.
-		boxes_mult = float(d["boxes"])
 		print("WORLDVIEW boxes_mult=%.2f" % boxes_mult)
 	if d.has("windup"):
-		# v2.6.1: 0 = a winding-up charger keeps only its dash lane (the 2.6.0
-		# tuple), i.e. its frozen body is free to walk over.
-		windup_priced = float(d["windup"])
 		print("WORLDVIEW windup_priced=%.0f" % windup_priced)
 	if d.has("hitbox"):
-		# v2.6.1: 0 = contact reach comes from the hurtbox only (the 2.6.0
-		# model), so the elite/boss/brachiosaurus under-estimate is restored.
-		hitbox_scan = float(d["hitbox"])
 		print("WORLDVIEW hitbox_scan=%.0f" % hitbox_scan)
 	if d.has("opp"):
-		# v2.7.0: 0 = exact v2.6.1 gather (ordinary target radius only, 4-field
-		# special tags only when bounty is on, 2-field loot reward).
-		opp_enable = float(d["opp"])
 		print("WORLDVIEW opp_enable=%.0f" % opp_enable)
 	if d.has("agg"):
-		# v2.7.0: risk appetite 0..2 -> special gather radius 900/1400/1600.
-		opp_agg = clamp(float(d["agg"]), 0.0, 2.0)
 		print("WORLDVIEW opp_agg=%.2f" % opp_agg)
 	if d.has("cov"):
-		# v2.8.0: 0 = exact v2.7.0 (Boss/Elite share class 1, no reward tags,
-		# old incidental produce values).
-		cov_enable = float(d["cov"])
 		print("WORLDVIEW cov_enable=%.0f" % cov_enable)
 	if d.has("tapcd"):
-		# v2.8.0: 0 = exact v2.7.0 fixed 2-move/2-stop tap (fire_wait_frames
-		# stays -1, the movement behaviour falls back to the old cycle).
-		tap_cd = float(d["tapcd"])
 		print("WORLDVIEW tap_cd=%.0f" % tap_cd)
+	if d.has("econ"):
+		print("WORLDVIEW econ=%.0f" % econ)
+
+
+# Compatibility wrapper for the offline harnesses (dlc-selftest, probes and the
+# field-equivalence test call apply_overrides on a bare instance). It routes
+# through the SAME single Config parser -- there is no second key table -- and
+# copies only the fields the dict actually touched, preserving the old
+# accumulate-without-reset semantics the harnesses rely on.
+func apply_overrides(d: Dictionary) -> void:
+	if _cfg == null:
+		_cfg = Config.new()
+	_cfg.override(d)
+	for f in _cfg.last_fields.keys():
+		if f in self:
+			set(f, _cfg.get(f))
+	# Explicit --arb-econ override must land even when it equals the shipped
+	# default (Config's last_fields only tracks CHANGES; the bare-instance
+	# default is the legacy path, so econ=1 has to be applied explicitly).
+	if d.has("econ"):
+		econ = float(d["econ"])
+	if econ_module == null:
+		econ_module = Economy.new()
+	econ_module.apply_config(_cfg)
+	if econ_planner == null:
+		econ_planner = EconPlanner.new()
+	econ_planner.apply_config(_cfg)
+	econ = float(_cfg.econ) if d.has("econ") else econ
+	_log_overrides(d)
 
 
 # Expected damage applications from a body over one horizon: how often it hits
@@ -1246,6 +1284,20 @@ func gather(main, player) -> void:
 	var max_hp = max(float(player.max_stats.health), 1.0)
 	var missing_hp = max_hp - current_hp
 	var food_mode = row.get("food", "")
+	# -- v2.9 economy layer ---------------------------------------------------
+	# econ=0 skips everything below (the exact v2.8.0 path). econ=1 gathers the
+	# pure-data ctx ONCE for this decision, then prices every resource class
+	# through economy.gd and writes the acquisition-path flags.
+	var econ_on = econ != 0.0
+	var econ_ctx = {}
+	var radius_sq = pickup_sq
+	if econ_on:
+		econ_ctx = _econ_build_ctx(row, player, spawner, missing_hp, max_hp,
+				food_mode, targets)
+		_econ_ctx = econ_ctx
+		last_econ_ctx = econ_ctx
+		var econ_reach = max(econ_module.gather_range, far_corner.length())
+		radius_sq = econ_reach * econ_reach
 	# v2.4.0: evolution consumables are a reward class the old food pricing
 	# cannot express -- they heal nothing, cannot be attracted (see the EVO_*
 	# block above), and the only way to take one is to step the ItemPickupArea
@@ -1261,7 +1313,10 @@ func gather(main, player) -> void:
 	last_evo_ground_n = 0
 	for c in main._consumables:
 		var dist_sq = c.position.distance_squared_to(pos)
-		if dist_sq >= pickup_sq:
+		if dist_sq >= radius_sq:
+			continue
+		if econ_on:
+			_econ_push_consumable(c, pos, dist_sq, spawner)
 			continue
 		var kind = _consumable_kind(c)
 		if kind != "":
@@ -1332,8 +1387,15 @@ func gather(main, player) -> void:
 			continue
 		if "attracted_by" in g and g.attracted_by != null:
 			continue
-		if g.position.distance_squared_to(pos) < pickup_sq:
-			rewards.push_back([g.position, gold_value * draw])
+		if g.position.distance_squared_to(pos) < radius_sq:
+			if econ_on:
+				var gv = econ_module.price_gold(econ_ctx)
+				var gflags = Contract.ECON_AUTO_AT_HORN
+				if gv > 0.0:
+					gflags |= Contract.ECON_TRIGGER
+				rewards.push_back(_econ_reward_tag(0, [g.position, gv], gflags))
+			else:
+				rewards.push_back([g.position, gold_value * draw])
 
 	# Scapegoat revive (see REVIVE_VALUE): a dead goat's zone is a held reward.
 	if revive_mult > 0.0 and ("pets" in spawner):
@@ -1358,10 +1420,20 @@ func gather(main, player) -> void:
 	# Trees: pacifist's only kills and crates; cryptid's income (negative value
 	# later). spawner.neutrals holds them.
 	var tree_value = float(row.get("tree_value", 0.0))
+	if econ_on:
+		tree_value = econ_module.price_tree(econ_ctx)
 	if tree_value != 0.0 and ("neutrals" in spawner):
 		for n in spawner.neutrals:
 			if is_instance_valid(n) and not n.dead and not n._pending_die \
-					and n.position.distance_squared_to(pos) < pickup_sq:
+					and n.position.distance_squared_to(pos) < radius_sq:
+				if econ_on:
+					econ_ctx["item_eta"] = sqrt(n.position.distance_squared_to(pos)) / max(player_speed, 1.0)
+					econ_ctx["price_flags"] = Contract.ECON_TREE
+					var tnv = econ_module.price_tree(econ_ctx)
+					var ttag = OPP_TAG_TREE if tnv > 0.0 else 0
+					rewards.push_back(_econ_reward_tag(ttag,
+							[n.position, tnv, false], Contract.ECON_TREE))
+					continue
 				# v2.8.0: a positive tree value is a high-value produce (drops a
 				# consumable + material). Negative values (Cryptid's tree
 				# policy) stay untagged so the opportunity layer never chases
@@ -1385,6 +1457,8 @@ func gather(main, player) -> void:
 				threats.push_back([b.global_position, Vector2.ZERO, births_r,
 						BIRTH_STEP_COST, KIND_MARK, 0.0, TICKS_ONCE, INF_TIME])
 
+	if econ_on:
+		_econ_finalize(pos)
 	profile = {}
 	profile["pickup_radius"] = pickup_radius   # every row: the attract rim prices drops
 	# v2.5.0 telemetry only: lets the arbiter's BOTLOG show the end-of-wave
@@ -1392,6 +1466,12 @@ func gather(main, player) -> void:
 	# already carry the bonus in their reward value (_evo_waveend_scale), so
 	# nothing may add it a second time from here.
 	profile["wave_left"] = wave_time_left
+	# v2.9: the planner's commitment for this decision. The arbiter treats a
+	# present, non-empty dict as "economy layer ON"; synthetic test inputs that
+	# pass no profile["econ"] (and old reward tuples without econ flags) keep
+	# the exact v2.8 path.
+	if econ_on:
+		profile["econ"] = _econ_plan_state
 	# v2.3.0 contract: BOTH signals are written every frame, unconditionally --
 	# including on the --arb-charprofile=0 control arm and for rows whose
 	# resolver was skipped. The arbiter's own switches (--arb-kite=0,
@@ -1488,6 +1568,234 @@ func gather(main, player) -> void:
 # otherwise hand the opportunity planner dozens of candidates; the nearest
 # OPP_SPECIAL_MAX is all a commitment layer can act on in one decision anyway.
 # Non-special targets are untouched, so the normal DPS/target path is identical.
+
+# =============================================================================
+# v2.9 economy layer helpers (world_view side)
+#
+# The game-facing half lives here: gather the pure-data ctx from RunData effects
+# (no character names -- FA-25), then hand every resource to steering/economy.gd.
+# All of it is inside `if econ != 0.0` branches: --arb-econ=0 must stay the exact
+# v2.8.0 code path.
+# =============================================================================
+
+# The game's pickup-trigger / full-HP effect keys are read by string hash so the
+# module does not depend on any character identity (FA-25: data-driven).
+func _econ_effect_array(name: String, pi: int) -> Array:
+	var v = RunData.get_player_effect(Keys.generate_hash(name), pi)
+	return v if v is Array else []
+
+
+func _econ_effect_number(name: String, pi: int) -> float:
+	var v = RunData.get_player_effect(Keys.generate_hash(name), pi)
+	if typeof(v) == TYPE_INT or typeof(v) == TYPE_REAL:
+		return float(v)
+	if v is Array:
+		var total = 0.0
+		for e in v:
+			if e is Array and e.size() >= 2:
+				total += float(e[1])
+		return total
+	return 0.0
+
+
+# Weapon-level pickup triggers (FA-14: Blunderbuss' reload_when_pickup_gold is
+# an effect on the weapon, not in the player effect dict).
+func _econ_weapon_reload(player) -> bool:
+	if not ("current_weapons" in player):
+		return false
+	var h = Keys.generate_hash("reload_when_pickup_gold")
+	for w in player.current_weapons:
+		if not is_instance_valid(w) or not ("effects" in w):
+			continue
+		for e in w.effects:
+			if e != null and int(e.get("key_hash")) == h:
+				return true
+	return false
+
+
+func _econ_near_enemies(at: Vector2, spawner, radius: float) -> int:
+	var r_sq = radius * radius
+	var near = 0
+	for e in spawner.enemies:
+		if is_instance_valid(e) and not e.dead and not e.is_loot 				and e.position.distance_squared_to(at) < r_sq:
+			near += 1
+	return near
+
+
+# Build the immutable per-decision context the economy module prices against.
+func _econ_build_ctx(row, player, spawner, missing_hp: float, max_hp: float,
+		food_mode: String, targets_now: Array) -> Dictionary:
+	var pi = int(player.player_index)
+	var fx = {
+		"perm_stats": _econ_effect_array("consumable_stats_while_max", pi),
+		"has_temp_stats": _effect_enabled(
+				Keys.generate_hash("temp_consumable_stats_while_max"), pi),
+		"has_decay_stats": _effect_enabled(
+				Keys.generate_hash("decaying_stats_on_consumable"), pi),
+		"explode_consumable": _effect_enabled(
+				Keys.generate_hash("explode_on_consumable"), pi) \
+				or _effect_enabled(Keys.generate_hash("explode_on_consumable_burning"), pi),
+		"stats_on_fruit": _effect_enabled(Keys.generate_hash("stats_on_fruit"), pi),
+		"no_heal": _effect_enabled(Keys.no_heal_hash, pi),
+		"consumable_heal": float(RunData.get_player_effect(
+				Keys.generate_hash("consumable_heal"), pi)),
+		"gold_dmg": _effect_enabled(Keys.dmg_when_pickup_gold_hash, pi),
+		"gold_reload": _effect_enabled(Keys.reload_when_pickup_gold_hash, pi) \
+				or _econ_weapon_reload(player),
+		"gold_heal_pct": _econ_effect_number("heal_when_pickup_gold", pi),
+		"gold_double_pct": _econ_effect_number("chance_double_gold", pi),
+		"gold_mat_mult": _econ_effect_number("increase_material_value", pi),
+		"item_box_gold": _econ_effect_number("item_box_gold", pi),
+		"gold_drops": _econ_effect_number("gold_drops", pi),
+		"one_shot_trees": _effect_enabled(Keys.generate_hash("one_shot_trees"), pi),
+		"cryptid": _effect_enabled(Keys.generate_hash("cryptid"), pi),
+		"trees": _econ_effect_number("trees", pi),
+		"tree_turrets": _econ_effect_number("tree_turrets", pi),
+		"crate_chance": _econ_effect_number("crate_chance", pi),
+	}
+	var hashes = {
+		"stat_harvesting": Keys.generate_hash("stat_harvesting"),
+		"explosion_damage": Keys.generate_hash("explosion_damage"),
+		"stat_max_hp": Keys.generate_hash("stat_max_hp"),
+	}
+	var targets_near = 0
+	for t in targets_now:
+		if t[0].distance_squared_to(player.position) < GOLD_DRAW_QUIET_RADIUS \
+				* GOLD_DRAW_QUIET_RADIUS:
+			targets_near += 1
+	var waves_total = 20
+	if "nb_of_waves" in RunData:
+		waves_total = max(int(RunData.nb_of_waves), int(RunData.current_wave))
+	return {
+		"wave": int(RunData.current_wave),
+		"waves_total": waves_total,
+		"wave_time_left": wave_time_left,
+		"hp_ratio": current_hp / max_hp,
+		"missing_hp": missing_hp,
+		"max_hp": max_hp,
+		"player_speed": player_speed,
+		"food_mode": food_mode,
+		"targets_near": targets_near,
+		"weapon_cooling": _weapon_cooling(player),
+		"veteran_no_fruit": _effect_enabled(
+				Keys.generate_hash("no_fruit_attracted_end_of_wave"), pi),
+		"perm_gained_this_wave": int(row.get("perm_gained_this_wave", 0)),
+		"effects": fx,
+		"hashes": hashes,
+	}
+
+
+# Ground-consumable class for the economy module.
+func _econ_consumable_kind(c) -> String:
+	var k = _consumable_kind(c)
+	if k == "meca_fruit":
+		return "meca"
+	if k == "mutant_fruit":
+		return "mutant"
+	if k == "mutation_fruit":
+		return "mutation"
+	if k == "meca_parts":
+		return "parts"
+	var boxv = _box_value(c)
+	if boxv >= LEGENDARY_BOX_VALUE:
+		return "legendary"
+	if boxv > 0.0:
+		return "box"
+	if _consumable_is_food(c):
+		return "fruit"
+	var d = c.get("consumable_data")
+	if d != null and d.get("my_id") == "consumable_poisoned_fruit":
+		return "poisoned"
+	if c.has_method("has_damage_effect") and c.has_damage_effect():
+		return "poisoned"
+	return ""
+
+
+# Price one ground consumable through the economy module and push its reward.
+func _econ_push_consumable(c, pos: Vector2, dist_sq: float, spawner) -> void:
+	var kind = _econ_consumable_kind(c)
+	if kind == "":
+		return
+	_econ_ctx["item_eta"] = sqrt(dist_sq) / max(player_speed, 1.0)
+	var flags = econ_module.flags_for(kind, _econ_ctx)
+	_econ_ctx["price_flags"] = flags
+	var heal = econ_module.heal_for(kind, _econ_ctx)
+	var near = _econ_near_enemies(c.position, spawner, FOOD_BOMB_RADIUS)
+	var v = econ_module.price_consumable(kind, heal, _econ_ctx, near)
+	if v == 0.0:
+		return
+	var opp_tag = _opp_consumable_tag(c)
+	if kind == "meca" or kind == "mutant" or kind == "mutation" or kind == "parts":
+		rewards.push_back(_econ_reward_tag(opp_tag,
+				[c.position, v, false, EVO_WALK_RIM, EVO_WALK_TAG], flags))
+	else:
+		rewards.push_back(_econ_reward_tag(opp_tag, [c.position, v], flags))
+	return
+
+
+# Append the optional econ-flags field while preserving the v2.8 tag semantics.
+func _econ_reward_tag(tag: int, r: Array, flags: int) -> Array:
+	var out = _opp_reward_tag(tag, r)
+	if flags == 0:
+		return out
+	out = out.duplicate()
+	while out.size() < Contract.R_ECON_FLAGS:
+		if out.size() == 2:
+			out.push_back(true)     # keep the "attracted" default for r[2]
+		else:
+			out.push_back(0.0)
+	out.push_back(float(flags))
+	return out
+
+
+func _econ_reward_before(a, b) -> bool:
+	return float(a[1]) > float(b[1])
+
+
+# Bound the reward list and publish the planner candidate array. econ=1 may see
+# the whole map (radius >= economy.gather_range), so the cap matters.
+func _econ_finalize(at: Vector2) -> void:
+	econ_candidates = []
+	for r in rewards:
+		if r.size() <= Contract.R_ECON_FLAGS:
+			continue
+		var f = int(r[Contract.R_ECON_FLAGS])
+		if f == 0:
+			continue
+		var tag = int(r[Contract.R_TAG]) if r.size() > Contract.R_TAG else 0
+		econ_candidates.push_back({"pos": r[0], "value": float(r[1]),
+				"flags": f, "tag": tag})
+	for t in targets:
+		if t.size() > Contract.TG_SPECIAL and int(t[Contract.TG_SPECIAL]) > 0:
+			econ_candidates.push_back({"pos": t[0], "value": float(t[1]),
+					"flags": Contract.ECON_SPECIAL,
+					"tag": int(t[Contract.TG_SPECIAL])})
+	# -- v2.9 planner: at most ONE resource commitment per decision ----------
+	# The arbiter consumes this through its existing goal/bounty pull channels;
+	# special targets are deliberately left to its legacy bounty path.
+	if econ_planner != null:
+		_econ_plan_state = econ_planner.update({
+			"pos": at,
+			"speed": player_speed,
+			"hp_ratio": float(_econ_ctx.get("hp_ratio", 1.0)),
+			"wave_time_left": wave_time_left,
+			"threats": threats,
+			"candidates": econ_candidates,
+			"mitigation": mitigation,
+			"body_radius": body_radius,
+		})
+	else:
+		_econ_plan_state = {}
+	var cap = max(int(econ_module.candidate_cap), 8)
+	if rewards.size() > cap:
+		var sorted = rewards.duplicate()
+		sorted.sort_custom(self, "_econ_reward_before")
+		rewards = []
+		for i in range(min(cap, sorted.size())):
+			rewards.push_back(sorted[i])
+	return
+
+
 func _trim_special_targets(at: Vector2, legacy_range_sq: float) -> void:
 	# Everything the LEGACY radius can see is kept untouched: dropping a
 	# closer body because a far special used the extra budget would silently
@@ -1497,9 +1805,9 @@ func _trim_special_targets(at: Vector2, legacy_range_sq: float) -> void:
 	var legacy_special = 0
 	for i in range(targets.size()):
 		var t = targets[i]
-		if t.size() <= 3 or float(t[3]) <= 0.0:
+		if t.size() <= TG_SPECIAL or float(t[TG_SPECIAL]) <= 0.0:
 			continue
-		var dsq = at.distance_squared_to(t[0])
+		var dsq = at.distance_squared_to(t[TG_POS])
 		if dsq < legacy_range_sq:
 			legacy_special += 1
 		else:
@@ -2206,13 +2514,13 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 			# class-1-for-both semantics.
 			if cov_enable != 0.0 and opp_enable != 0.0 \
 					and ("is_elite" in unit) and unit.is_elite:
-				special = 4
+				special = Contract.SPECIAL_ELITE
 			else:
-				special = 1
+				special = Contract.SPECIAL_BOSS
 		elif _is_egg(unit):
-			special = 2
+			special = Contract.SPECIAL_EGG
 		elif cursed or evolved:
-			special = 3
+			special = Contract.SPECIAL_DLC
 	var target_visible = dist_sq < target_range_sq
 	if not target_visible and special > 0 and _special_range_sq > 0.0 \
 			and dist_sq < _special_range_sq:
@@ -2255,7 +2563,7 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 
 	var corridor = _dash_corridor(unit)
 	if not corridor.empty():
-		corridor[3] = threat_damage
+		corridor[T_DAMAGE] = threat_damage
 		# v2.6.1: during the wind-up the dash lane has not started yet, but the
 		# body is FROZEN in place with a live contact hitbox. The lane tuple does
 		# not cover the pre-launch interval (the arbiter integrates a threat only
@@ -2265,7 +2573,7 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 		# frozen body as a contact threat that expires exactly when the dash
 		# launches; the lane then takes over. In flight (T_START == 0) the lane
 		# already is the body, so nothing is added. --arb-windup=0 = old tuple.
-		var launch = float(corridor[5])
+		var launch = float(corridor[T_START])
 		if windup_priced != 0.0 and launch > 0.0001:
 			var frozen_health = 20.0
 			if unit.current_stats and unit.current_stats.health > 0:
@@ -2816,12 +3124,9 @@ func _profile_mode() -> String:
 	if profile_mode != "":
 		return profile_mode
 	profile_mode = "auto"
-	var args = Utils.get_startup_arguments()
-	var raw = args.get("arb-profile", "")
-	if raw is String:
-		var m = raw.to_lower()
-		if m == "auto" or m == "table" or m == "merge":
-			profile_mode = m
+	# Set once by Config.parse() from the STRING startup arg --arb-profile.
+	if _cfg_profile_mode == "auto" or _cfg_profile_mode == "table" or _cfg_profile_mode == "merge":
+		profile_mode = _cfg_profile_mode
 	print("BOTLOG PROFILE_MODE ", profile_mode)
 	return profile_mode
 

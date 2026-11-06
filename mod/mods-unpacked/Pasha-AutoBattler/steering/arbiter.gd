@@ -1,5 +1,10 @@
 extends Reference
 
+# Tuple layout / vocabulary contract: single source of truth (task-5).
+const Contract = preload("res://mods-unpacked/Pasha-AutoBattler/steering/contract.gd")
+# Single --arb-* override parser (task-5).
+const Config = preload("res://mods-unpacked/Pasha-AutoBattler/steering/config.gd")
+
 # Arbiter: picks ONE movement action per frame by scoring every candidate
 # direction under a single cost function, in a single unit (expected HP).
 #
@@ -63,7 +68,7 @@ const REFINE_ROUNDS = 2
 const HIT_MARGIN = 1.6           # dmin beyond (radii * this) scores zero; between
                                  # hard contact and this the cost tapers smoothly, so
                                  # "barely clear" and "comfortably clear" differ
-const BODY_RADIUS_FALLBACK = 20.0
+const BODY_RADIUS_FALLBACK = Contract.BODY_RADIUS_FALLBACK
 # How many times a threat lands over the horizon is no longer a constant here:
 # world_view computes it per threat (T_TICKS), because a body you cannot outrun
 # keeps hitting for every horizon you stay attached while a bullet hits once.
@@ -456,12 +461,12 @@ const GOAL_COOLDOWN = 30         # frames after a drop before re-acquiring
 
 # -- v2.5.0: walk-on reward semantics --
 # v2.4 passed evolution consumables as [pos, value, false, EVO_WALK_RIM] and
-# the cost code's `held = r.size() > 3 and r[3] > 0` read that as a HELD
+# the cost code's `held = r.size() > 3 and r[R_RIM] > 0` read that as a HELD
 # reward (revive-zone semantics: paid every frame inside the rim). The bot
 # then parks on the rim and never consumes the item -- offline closed-loop
 # sim showed exactly that. A walk-on item is a ONE-SHOT pickup: pay the
 # gradient and the taken bonus, then the reward disappears when the game
-# removes the consumable. world_view marks these with r[4] = 1.0;
+# removes the consumable. world_view marks these with r[R_WALKON] = 1.0;
 # --arb-walk=0 ignores the marker and restores the 2.4.0 held reading.
 const WALK_ENABLE = 1.0          # --arb-walk
 
@@ -578,8 +583,6 @@ const ROOM_TRACK = 1.0           # --arb-roomtrack
 # 1 = default (may cross 1-2 ordinary bodies for a worthwhile target),
 # 2 = aggressive. --arb-opp=0 restores the exact v2.6.1 behaviour: legacy
 # _update_goal/_update_bounty, unscaled pulls, no target close-in candidate.
-const OPP_ENABLE = 1.0            # --arb-opp
-const OPP_AGG = 1.0               # --arb-agg: 0 conservative / 1 default / 2 aggressive
 const OPP_TARGET_MAX = 1700.0     # px: defensive cap (world_view gathers <= 1600)
 const OPP_TICKS = 100             # frames a commitment survives before re-acquisition
 const OPP_COOLDOWN = 15           # frames after a release before re-acquiring
@@ -612,7 +615,6 @@ const OPP_RISK_TAPER = 60.0       # px beyond the hit radius where route risk fa
 # exact v2.7.0 tables/usages. Values are HP-equivalent (same unit as threats):
 # they answer "what is this objective worth in contact damage budget", before
 # the route-risk gate.
-const COV_ENABLE = 1.0            # --arb-cov
 const OPP_VALUE_BOSS = 50.0       # class 1 (Boss, is_elite=false)
 const OPP_VALUE_ELITE = 30.0      # class 4 (Elite, is_elite=true; DLC elites too)
 const OPP_VALUE_EGG = 40.0        # class 2 (spawner egg)
@@ -623,11 +625,11 @@ const OPP_VALUE_CRATE_LEGENDARY = 34.0  # reward tag 2: one legendary item choic
 const OPP_VALUE_EVO = 20.0        # reward tag 3: DLC evolution progression item
 const OPP_VALUE_LOOT = 12.0       # reward tag 4: fleeing loot alien
 const OPP_VALUE_TREE = 7.0        # reward tag 5: living tree (consumable+material)
-const OPP_TAG_CRATE = 1           # world_view reward[6] tags (mirror)
-const OPP_TAG_LEGENDARY = 2
-const OPP_TAG_EVO = 3
-const OPP_TAG_LOOT = 4
-const OPP_TAG_TREE = 5
+const OPP_TAG_CRATE = Contract.OPP_TAG_CRATE          # world_view reward[R_TAG] tags
+const OPP_TAG_LEGENDARY = Contract.OPP_TAG_LEGENDARY
+const OPP_TAG_EVO = Contract.OPP_TAG_EVO
+const OPP_TAG_LOOT = Contract.OPP_TAG_LOOT
+const OPP_TAG_TREE = Contract.OPP_TAG_TREE
 
 # -- v2.3.0: hit-adaptive alert --
 # A build that just took a big hit should behave more cautiously for a moment.
@@ -645,45 +647,52 @@ const ADAPT_MIN_TICKS = 30       # ...but at least this many decisions, so a fas
                                  # decision interval cannot blink the alert away
 
 # -- Threat kinds --
-const KIND_PROJ = 0
-const KIND_CONTACT = 1
-const KIND_DASH = 2              # a charge, in flight or still winding up
-const KIND_AOE = 3               # stationary ground telegraph
-const KIND_MARK = 4              # a spawn marker keep-out: priced on CONTACT only. It
-                                 # must not feed crowding or enclosure -- a ring of
-                                 # red X's is not a surround, and on Danger 6 there are
-                                 # enough of them at once to read as one
+# Tuple layout / vocabulary: single source of truth is steering/contract.gd
+# (Step-1 refactor; the values used to be duplicated here and in world_view.gd).
+# Local aliases keep the hot loops on compile-time constants.
+const KIND_PROJ = Contract.KIND_PROJ
+const KIND_CONTACT = Contract.KIND_CONTACT
+const KIND_DASH = Contract.KIND_DASH      # a charge, in flight or still winding up
+const KIND_AOE = Contract.KIND_AOE        # stationary ground telegraph
+const KIND_MARK = Contract.KIND_MARK      # spawn-marker keep-out: priced on CONTACT only
 
-# -- Threat tuple layout (as built by world_view) --
-const T_POS = 0
-const T_VEL = 1
-const T_RADIUS = 2
-const T_DAMAGE = 3
-const T_KIND = 4
-const T_START = 5                # seconds until this threat starts moving (dash wind-up)
-const T_TICKS = 6                # expected damage applications over the horizon:
-                                 # 1 for anything spent on impact, more for a body
-                                 # that stays attached (see world_view)
-const T_END = 7                  # seconds until this threat stops being dangerous.
-const T_KILL = 8                 # OPTIONAL 9th field, contact threats only: how
-                                 # killable the body is (KILL_HP_REF falloff, 0-1).
-                                 # Feeds the fire_still standing discount below.
-                                 # Only a pillar uses it (armed 0.14 s, then inert);
-                                 # everything else passes INF_TIME. Without it an
-                                 # armed-at-0.54 s pillar would be feared for the
-                                 # whole horizon, which is most of the ground it
-                                 # wrongly denies us.
+# -- Threat tuple layout (as built by world_view; see steering/contract.gd) --
+const T_POS = Contract.T_POS
+const T_VEL = Contract.T_VEL
+const T_RADIUS = Contract.T_RADIUS
+const T_DAMAGE = Contract.T_DAMAGE
+const T_KIND = Contract.T_KIND
+const T_START = Contract.T_START      # seconds until this threat starts moving
+const T_TICKS = Contract.T_TICKS      # expected damage applications over the horizon
+const T_END = Contract.T_END          # seconds until this threat stops being dangerous
+const T_KILL = Contract.T_KILL        # OPTIONAL 9th field: killability (contact only)
 
-# -- Target tuple layout --
-const TG_POS = 0
-const TG_VALUE = 1               # expected HP this enemy costs us if left alive
-const TG_BOSS = 2                # OPTIONAL: true for bosses/elites; cluster engage skips them
+# -- Target tuple layout (see steering/contract.gd) --
+const TG_POS = Contract.TG_POS
+const TG_VALUE = Contract.TG_VALUE    # expected HP this enemy costs us if left alive
+const TG_BOSS = Contract.TG_BOSS      # OPTIONAL: true for bosses/elites
+const TG_SPECIAL = Contract.TG_SPECIAL  # OPTIONAL: special class (SPECIAL_*)
 
-# -- Charger tuple layout --
-const C_POS = 0
-const C_RANGE = 1                # launch range: outside it the dash cannot trigger
-const C_DAMAGE = 2
-const C_READY = 3                # seconds until its cooldown expires
+# -- Charger tuple layout (see steering/contract.gd) --
+const C_POS = Contract.C_POS
+const C_RANGE = Contract.C_RANGE      # launch range: outside it the dash cannot trigger
+const C_DAMAGE = Contract.C_DAMAGE
+const C_READY = Contract.C_READY      # seconds until its cooldown expires
+
+# -- Reward tuple layout (see steering/contract.gd) --
+const R_POS = Contract.R_POS
+const R_VALUE = Contract.R_VALUE
+const R_ATTRACTED = Contract.R_ATTRACTED
+const R_RIM = Contract.R_RIM
+const R_WALKON = Contract.R_WALKON
+const R_VEL = Contract.R_VEL
+const R_TAG = Contract.R_TAG
+
+# -- Special-target class (target[TG_SPECIAL]) --
+const SPECIAL_BOSS = Contract.SPECIAL_BOSS
+const SPECIAL_EGG = Contract.SPECIAL_EGG
+const SPECIAL_DLC = Contract.SPECIAL_DLC
+const SPECIAL_ELITE = Contract.SPECIAL_ELITE
 
 # Tunable weights, seeded from the constants above. They are instance vars
 # rather than consts so a benchmark can sweep them from the command line
@@ -753,7 +762,7 @@ var room_track = ROOM_TRACK             # --arb-roomtrack
 var w_space = W_SPACE                   # --arb-space: open-floor potential
 var goal_enable = GOAL_ENABLE           # --arb-goal
 var w_goal = W_GOAL                     # --arb-goalw
-var walk_enable = WALK_ENABLE           # --arb-walk: honor r[4] walk-on marker
+var walk_enable = WALK_ENABLE           # --arb-walk: honor r[R_WALKON] walk-on marker
 var pursuit_enable = PURSUIT_ENABLE     # --arb-pursuit: steering second ply
 # v2.5.0 per-decision state (breakout + item goal). Read by _cost.
 var _breakout_active = false
@@ -793,9 +802,9 @@ var last_goal_value = 0.0
 # opp=0 leaves every legacy path untouched: _opp_on drives only the two new
 # pull guards and the new close-in candidate, and _update_opportunity is never
 # called (the legacy goal/bounty update path runs instead).
-var opp_enable = OPP_ENABLE
-var opp_agg = OPP_AGG
-var cov_enable = COV_ENABLE      # --arb-cov: v2.8 high-value coverage table
+var opp_enable = Config.OPP_ENABLE_DEFAULT
+var opp_agg = 1.0
+var cov_enable = Config.COV_ENABLE_DEFAULT  # --arb-cov: v2.8 high-value coverage table
 var _opp_on = false
 var _opp_kind = ""               # "target" | "reward"
 var _opp_value = 0.0
@@ -808,9 +817,19 @@ var _opp_goal_scale = 1.0
 var _opp_src = Vector2.ZERO      # raw (current) position of the committed reward
 # numeric telemetry for gate/selftest probes
 var last_opp = false
+# v2.9 economy: telemetry for the planner commitment consumed this decision
+var last_econ_kind = ""
+var last_econ_score = 0.0
 var last_opp_kind = ""
 var last_opp_value = 0.0
 var last_opp_risk = 0.0
+var _cfg = null                 # persistent Config for the compatibility apply_overrides()
+# -- v2.9 economy objective layer: the economy module / world_view own the
+# pricing; the arbiter only consumes the committed candidate (Phase B hook) and
+# must fall back to the v2.8 path for reward tuples without econ flags.
+var econ = 0.0                  # --arb-econ: shipped default 1 via Config.parse;
+                                # bare instances stay on the v2.8 legacy path.
+var _econ_state = {}            # per-decision planner commitment (profile["econ"])
 
 var pin_enable = 0.0             # --arb-pin=1 turns the escape mode on; default OFF
 var pin_threat = PIN_THREAT      # --arb-pinthreat
@@ -970,87 +989,121 @@ var _p_far = []                  # where it will be at FAR_T (crowd runway)
 
 # Apply command-line weight overrides, e.g. {"dps": 9.0, "enclose": 0.0}.
 # Unknown keys are ignored so a sweep script can pass a superset.
+func apply_config(cfg, verbose = false) -> void:
+	# Step-1: every value comes from the single Config parser (steering/config.gd).
+	_cfg = cfg
+	w_proj = cfg.w_proj
+	w_contact = cfg.w_contact
+	w_dash = cfg.w_dash
+	w_aoe = cfg.w_aoe
+	w_latent = cfg.w_latent
+	w_room = cfg.w_room
+	w_wall = cfg.w_wall
+	w_enclose = cfg.w_enclose
+	w_dps = cfg.w_dps
+	w_pickup = cfg.w_pickup
+	pickup_taken = cfg.pickup_taken
+	fire_still_danger = cfg.fire_still_danger
+	hop_enable = cfg.hop_enable
+	stand_mult = cfg.stand_mult
+	stand_commit = cfg.stand_commit
+	w_hyst = cfg.w_hyst
+	lethality_override = cfg.lethality_override
+	horizon = cfg.horizon
+	room_cap = cfg.room_cap
+	w_room_far = cfg.w_room_far
+	scan_distance = cfg.scan_distance
+	pin_enable = cfg.pin_enable
+	pin_dwell_override = cfg.pin_dwell_override
+	pin_leak = cfg.pin_leak
+	orbit_override = cfg.orbit_override
+	orbit_from_override = cfg.orbit_from_override
+	pin_threat = cfg.pin_threat
+	w_predict = cfg.w_predict
+	predict_secs = cfg.predict_secs
+	w_tangent = cfg.w_tangent
+	wall_swerve = cfg.wall_swerve
+	w_anchor = cfg.w_anchor
+	trade_share = cfg.trade_share
+	fire_floor = cfg.fire_floor
+	trade_killable_min = cfg.trade_killable_min
+	engage_mult = cfg.engage_mult
+	aimed_full = cfg.aimed_full
+	never_still_scan = cfg.never_still_scan
+	cluster_near = cfg.cluster_near
+	cluster_override = cfg.cluster_override
+	w_kite = cfg.w_kite
+	kite_hp_growth = cfg.kite_hp_growth
+	plan_depth = cfg.plan_depth
+	plan_beam = cfg.plan_beam
+	plan_gamma = cfg.plan_gamma
+	plan_max_threats = cfg.plan_max_threats
+	adapt_enable = cfg.adapt_enable
+	adapt_gain = cfg.adapt_gain
+	adapt_secs = cfg.adapt_secs
+	breakout_enable = cfg.breakout_enable
+	bounty_enable = cfg.bounty_enable
+	room_track = cfg.room_track
+	w_space = cfg.w_space
+	goal_enable = cfg.goal_enable
+	w_goal = cfg.w_goal
+	walk_enable = cfg.walk_enable
+	pursuit_enable = cfg.pursuit_enable
+	opp_enable = cfg.opp_enable
+	opp_agg = cfg.opp_agg
+	cov_enable = cfg.cov_enable
+	econ = cfg.econ
+	if verbose:
+		_print_overrides()
+
+
+# Debug-only: the exact weight/switch dump the old in-module parser printed
+# once per non-empty apply_overrides() call (same text and order).
+func _print_overrides() -> void:
+	print("ARBITER weights: proj=%.2f contact=%.2f dash=%.2f aoe=%.2f latent=%.2f room=%.2f roomcap=%.0f wall=%.2f enclose=%.2f dps=%.2f pickup=%.2f hyst=%.2f lethality=%.2f horizon=%.2f pin=%.2f pinthreat=%.2f predict=%.2f predsecs=%.2f tangent=%.2f swerve=%.2f anchor=%.2f" % [
+	w_proj, w_contact, w_dash, w_aoe, w_latent, w_room, room_cap, w_wall,
+	w_enclose, w_dps, w_pickup, w_hyst, lethality, horizon, pin_enable, pin_threat,
+	w_predict, predict_secs, w_tangent, wall_swerve, w_anchor])
+	print("ARBITER v2.3.0: kite=%.2f kitehp=%.2f plan=%d beam=%d gamma=%.2f planthreats=%d adapt=%.2f adaptgain=%.2f adaptsecs=%.2f" % [
+	w_kite, kite_hp_growth, plan_depth, plan_beam, plan_gamma,
+	plan_max_threats, adapt_enable, adapt_gain, adapt_secs])
+	print("ARBITER v2.5.0: breakout=%.2f goal=%.2f goalw=%.2f walk=%.2f pursuit=%.2f" % [
+	breakout_enable, goal_enable, w_goal, walk_enable, pursuit_enable])
+	print("ARBITER v2.6.0: bounty=%.2f space=%.2f" % [bounty_enable, w_space])
+	print("ARBITER v2.6.1: roomtrack=%.2f" % [room_track])
+	print("ARBITER v2.7.0: opp=%.2f agg=%.2f" % [opp_enable, opp_agg])
+	print("ARBITER v2.8.0: cov=%.2f" % [cov_enable])
+
+
+# Compatibility wrapper for the offline harnesses (planner-selftest, gate, sim,
+# probes and the field-equivalence test call apply_overrides on a bare
+# instance). It routes through the SAME single Config parser -- there is no
+# second key table -- and copies only the fields the dict actually touched,
+# preserving the old accumulate-without-reset semantics the harnesses rely on.
 func apply_overrides(d: Dictionary) -> void:
-	if d.has("proj"): w_proj = float(d["proj"])
-	if d.has("contact"): w_contact = float(d["contact"])
-	if d.has("dash"): w_dash = float(d["dash"])
-	if d.has("aoe"): w_aoe = float(d["aoe"])
-	if d.has("latent"): w_latent = float(d["latent"])
-	if d.has("room"): w_room = float(d["room"])
-	if d.has("wall"): w_wall = float(d["wall"])
-	if d.has("enclose"): w_enclose = float(d["enclose"])
-	if d.has("dps"): w_dps = float(d["dps"])
-	if d.has("pickup"): w_pickup = float(d["pickup"])
-	if d.has("taken"): pickup_taken = float(d["taken"])
-	if d.has("firedanger"): fire_still_danger = float(d["firedanger"])
-	if d.has("hop"): hop_enable = float(d["hop"])
-	if d.has("stand"): stand_mult = float(d["stand"])
-	if d.has("standcommit"): stand_commit = float(d["standcommit"])
-	if d.has("hyst"): w_hyst = float(d["hyst"])
-	if d.has("lethality"): lethality_override = float(d["lethality"])
-	if d.has("horizon"): horizon = float(d["horizon"])
-	if d.has("roomcap"): room_cap = float(d["roomcap"])
-	if d.has("roomfar"): w_room_far = float(d["roomfar"])
-	if d.has("scandist"): scan_distance = max(float(d["scandist"]), 0.0)
-	if d.has("pin"): pin_enable = float(d["pin"])
-	if d.has("pindwell"): pin_dwell_override = int(d["pindwell"])
-	if d.has("pinleak"): pin_leak = float(d["pinleak"])
-	if d.has("orbit"): orbit_override = float(d["orbit"])
-	if d.has("orbitfrom"): orbit_from_override = float(d["orbitfrom"])
-	if d.has("pinthreat"): pin_threat = float(d["pinthreat"])
-	if d.has("predict"): w_predict = float(d["predict"])
-	if d.has("predsecs"): predict_secs = max(float(d["predsecs"]), 0.1)
-	if d.has("tangent"): w_tangent = float(d["tangent"])
-	if d.has("swerve"): wall_swerve = float(d["swerve"])
-	if d.has("anchor"): w_anchor = float(d["anchor"])
-	if d.has("trade"): trade_share = float(d["trade"])
-	if d.has("floor"): fire_floor = float(d["floor"])
-	if d.has("tradekill"): trade_killable_min = float(d["tradekill"])
-	if d.has("engage"): engage_mult = float(d["engage"])
-	if d.has("aimedfull"): aimed_full = float(d["aimedfull"])
-	if d.has("neverstill"): never_still_scan = float(d["neverstill"])
-	if d.has("cnear"): cluster_near = float(d["cnear"])
-	if d.has("cluster"): cluster_override = int(d["cluster"])
-	# v2.3.0 switches: standoff ring, 2-ply planner, hit-adaptive alert.
-	if d.has("kite"): w_kite = float(d["kite"])
-	if d.has("kitehp"): kite_hp_growth = float(d["kitehp"])
-	if d.has("plan"): plan_depth = int(d["plan"])
-	if d.has("beam"): plan_beam = max(int(d["beam"]), 0)
-	if d.has("gamma"): plan_gamma = float(d["gamma"])
-	if d.has("planthreats"): plan_max_threats = max(int(d["planthreats"]), 0)
-	if d.has("adapt"): adapt_enable = float(d["adapt"])
-	if d.has("adaptgain"): adapt_gain = float(d["adaptgain"])
-	if d.has("adaptsecs"): adapt_secs = max(float(d["adaptsecs"]), 0.0)
-	# v2.5.0 switches: every one of these at 0 is the exact 2.4.0 control arm.
-	if d.has("breakout"): breakout_enable = float(d["breakout"])
-	if d.has("bounty"): bounty_enable = float(d["bounty"])
-	if d.has("roomtrack"): room_track = float(d["roomtrack"])
-	if d.has("space"): w_space = float(d["space"])
-	if d.has("goal"): goal_enable = float(d["goal"])
-	if d.has("goalw"): w_goal = float(d["goalw"])
-	if d.has("walk"): walk_enable = float(d["walk"])
-	if d.has("pursuit"): pursuit_enable = float(d["pursuit"])
-	# v2.7.0 switches: opp=0 restores the exact v2.6.1 opportunity layer;
-	# agg is the risk dial (0..2) and only matters while opp is on.
-	if d.has("opp"): opp_enable = float(d["opp"])
-	if d.has("agg"): opp_agg = clamp(float(d["agg"]), 0.0, 2.0)
-	# v2.8.0: cov=0 restores the exact v2.7.0 high-value tables (Boss/Elite
-	# share class 1/value 30; produces priced only by their raw reward value).
-	if d.has("cov"): cov_enable = float(d["cov"])
+	if _cfg == null:
+		_cfg = Config.new()
+	_cfg.override(d)
+	for f in _cfg.last_fields.keys():
+		if f in self:
+			set(f, _cfg.get(f))
+	# explicit econ switch: Config's last_fields only tracks CHANGES, and the
+	# bare-instance default is the legacy path (see world_view.apply_overrides).
+	if d.has("econ"):
+		econ = float(d["econ"])
 	if not d.empty():
-		print("ARBITER weights: proj=%.2f contact=%.2f dash=%.2f aoe=%.2f latent=%.2f room=%.2f roomcap=%.0f wall=%.2f enclose=%.2f dps=%.2f pickup=%.2f hyst=%.2f lethality=%.2f horizon=%.2f pin=%.2f pinthreat=%.2f predict=%.2f predsecs=%.2f tangent=%.2f swerve=%.2f anchor=%.2f" % [
-			w_proj, w_contact, w_dash, w_aoe, w_latent, w_room, room_cap, w_wall,
-			w_enclose, w_dps, w_pickup, w_hyst, lethality, horizon, pin_enable, pin_threat,
-			w_predict, predict_secs, w_tangent, wall_swerve, w_anchor])
-		print("ARBITER v2.3.0: kite=%.2f kitehp=%.2f plan=%d beam=%d gamma=%.2f planthreats=%d adapt=%.2f adaptgain=%.2f adaptsecs=%.2f" % [
-			w_kite, kite_hp_growth, plan_depth, plan_beam, plan_gamma,
-			plan_max_threats, adapt_enable, adapt_gain, adapt_secs])
-		print("ARBITER v2.5.0: breakout=%.2f goal=%.2f goalw=%.2f walk=%.2f pursuit=%.2f" % [
-			breakout_enable, goal_enable, w_goal, walk_enable, pursuit_enable])
-		print("ARBITER v2.6.0: bounty=%.2f space=%.2f" % [bounty_enable, w_space])
-		print("ARBITER v2.6.1: roomtrack=%.2f" % [room_track])
-		print("ARBITER v2.7.0: opp=%.2f agg=%.2f" % [opp_enable, opp_agg])
-		print("ARBITER v2.8.0: cov=%.2f" % [cov_enable])
+		_print_overrides()
+
+
+
+# True when at least one reward tuple carries the v2.9 econ-flags field. This is
+# the compatibility gate: v2.8-shaped synthetic inputs (470 selftest / 32 gate)
+# never do, so they keep the exact legacy path even with the econ switch on.
+func _rewards_have_econ_flags(rewards: Array) -> bool:
+	for r in rewards:
+		if r is Array and r.size() > Contract.R_ECON_FLAGS:
+			return true
+	return false
 
 
 # Returns the chosen unit direction, or ZERO to stand still.
@@ -1087,7 +1140,7 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 	if _stand_ok and fire_still_danger > 0.0:
 		var danger_sq = fire_still_danger * fire_still_danger
 		for t in threats:
-			if p0.distance_squared_to(t[0]) < danger_sq:
+			if p0.distance_squared_to(t[T_POS]) < danger_sq:
 				_stand_ok = false
 				break
 	last_stand_ok = _stand_ok
@@ -1168,6 +1221,16 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 	last_breakout_reason = _breakout_reason
 	last_breakout_free_now = _breakout_free_now
 	last_breakout_free_fut = _breakout_free_fut
+	# -- v2.9 economy layer: consume world_view's planner commitment ---------
+	# Compatibility rule (task-7): the economy path needs BOTH the econ switch and
+	# the new reward flags. Synthetic test inputs from v2.8 (old tuples, no
+	# profile["econ"]) therefore keep the exact legacy path, flags or not.
+	var econ_state = {}
+	var econ_flags_present = false
+	if econ != 0.0 and profile is Dictionary and profile.has("econ"):
+		econ_flags_present = _rewards_have_econ_flags(rewards)
+		if econ_flags_present:
+			econ_state = profile["econ"]
 	_goal_on = false
 	_bounty_on = false
 	_opp_on = false
@@ -1175,6 +1238,8 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 	last_opp_kind = ""
 	last_opp_value = 0.0
 	last_opp_risk = 0.0
+	last_econ_kind = ""
+	last_econ_score = 0.0
 	if opp_enable != 0.0:
 		# v2.7.0: ONE unified opportunity layer replaces the two separate
 		# committed layers. It still drives the same _goal_on/_bounty_on state
@@ -1182,8 +1247,34 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 		# chooses between special targets and high-value rewards on a
 		# value-minus-route-risk score instead of two binary safe windows.
 		if not escaping and not _breakout_active:
-			_opp_on = _update_opportunity(p0, speed, body_radius, mitigation,
-					threats, rewards, targets, weapon_range)
+			if not econ_state.empty() and bool(econ_state.get("on", false)):
+				# v2.9: the planner already priced value, deadline and route
+				# risk; feed its commitment through the legacy goal channel so
+				# _cost's pull/close-in candidate apply unchanged.
+				_goal_on = true
+				_goal_pos = econ_state["pos"]
+				_goal_value = float(econ_state["value"])
+				_goal_frac = clamp(_goal_value / 9.0, 0.5, 1.6)
+				_opp_on = true
+				_opp_kind = "reward"
+				_opp_value = _goal_value
+				_opp_risk = float(econ_state.get("risk", 0.0))
+				_opp_goal_scale = clamp(_goal_value / 9.0, 1.0, OPP_GOAL_SCALE_MAX)
+				last_econ_kind = str(econ_state.get("kind", ""))
+				last_econ_score = float(econ_state.get("score", 0.0))
+			elif econ_flags_present:
+				# econ=1 with correctly-priced rewards: do NOT let the v2.8
+				# opportunity layer re-price flagged resources through the cov
+				# tables (AUTO_AT_HORN must not become a mid-wave detour).
+				# Special targets keep the legacy bounty path unchanged.
+				if bounty_enable != 0.0:
+					_bounty_on = _update_bounty(p0, targets, threats, weapon_range)
+					if _bounty_on:
+						_opp_kind = "target"
+				_opp_on = _bounty_on
+			else:
+				_opp_on = _update_opportunity(p0, speed, body_radius, mitigation,
+						threats, rewards, targets, weapon_range)
 		_opp_on = _opp_on and (_goal_on or _bounty_on)
 		last_opp = _opp_on
 		last_opp_kind = _opp_kind if _opp_on else ""
@@ -2065,17 +2156,17 @@ func _update_bounty(p0: Vector2, targets: Array, threats: Array,
 	var best_u = 0.0
 	var best_pos = Vector2.ZERO
 	for t in targets:
-		if t.size() < 4 or float(t[3]) <= 0.0:
+		if t.size() <= TG_SPECIAL or float(t[TG_SPECIAL]) <= 0.0:
 			continue    # no v2.6 special tag (or bounty disabled by world_view)
-		var d = p0.distance_to(t[0])
+		var d = p0.distance_to(t[TG_POS])
 		if d > BOUNTY_RANGE or d <= desired:
 			continue
 		# Value / ETA: a high-value special just outside the horizon of the
 		# normal target term still loses to a nearer one.
-		var u = float(t[1]) / (1.0 + d / 480.0)
+		var u = float(t[TG_VALUE]) / (1.0 + d / 480.0)
 		if u > best_u:
 			best_u = u
-			best_pos = t[0]
+			best_pos = t[TG_POS]
 	if best_u <= 0.0:
 		return false
 	_bounty_pos = best_pos
@@ -2089,9 +2180,9 @@ func _nearest_special(targets: Array, at: Vector2, radius: float) -> float:
 	var best = -1.0
 	var r_sq = radius * radius
 	for t in targets:
-		if t.size() < 4 or float(t[3]) <= 0.0:
+		if t.size() <= TG_SPECIAL or float(t[TG_SPECIAL]) <= 0.0:
 			continue
-		var dsq = t[0].distance_squared_to(at)
+		var dsq = t[TG_POS].distance_squared_to(at)
 		if dsq <= r_sq and (best < 0.0 or dsq < best):
 			best = dsq
 	return -1.0 if best < 0.0 else sqrt(best)
@@ -2117,15 +2208,15 @@ func _opp_hp_floor() -> float:
 # v2.8.0 (--arb-cov): Boss 50 vs Elite 30 split (world_view class 4 for elites);
 # cov=0 keeps the exact v2.7.0 table (class 1 = 30 for both, no class 4).
 func _opp_special_value(special_class: int) -> float:
-	if special_class == 2:
+	if special_class == SPECIAL_EGG:
 		return OPP_VALUE_EGG      # spawner egg: killing it stops all future spawns
-	if special_class == 3:
+	if special_class == SPECIAL_DLC:
 		return OPP_VALUE_DLC      # cursed / evolved body (DLC payoff)
 	if cov_enable == 0.0:
-		return OPP_VALUE_V27_CLASS1 if special_class == 1 else 0.0
-	if special_class == 1:
+		return OPP_VALUE_V27_CLASS1 if special_class == SPECIAL_BOSS else 0.0
+	if special_class == SPECIAL_BOSS:
 		return OPP_VALUE_BOSS
-	if special_class == 4:
+	if special_class == SPECIAL_ELITE:
 		return OPP_VALUE_ELITE
 	return 0.0
 
@@ -2134,14 +2225,14 @@ func _opp_special_value(special_class: int) -> float:
 # high-value produce classes at reward[6]; the explicit table replaces the
 # legacy incidental price (a crate was 5, an evolution item 6-9, a tree 3 --
 # all below a single body's 10-40 contact price, so the unified planner could
-# almost never justify the detour). Raw r[1] is kept as a floor, so a
+# almost never justify the detour). Raw r[R_VALUE] is kept as a floor, so a
 # situationally boosted reward (hurt fruit, wave-end evolution item) still
 # wins. cov=0 returns the exact v2.7.0 raw value.
 func _opp_reward_value(r: Array) -> float:
-	var raw = float(r[1])
+	var raw = float(r[R_VALUE])
 	if cov_enable == 0.0 or r.size() <= 6:
 		return raw
-	var tag = int(round(float(r[6])))
+	var tag = int(round(float(r[R_TAG])))
 	var table = 0.0
 	if tag == OPP_TAG_CRATE:
 		table = OPP_VALUE_CRATE
@@ -2194,22 +2285,22 @@ func _opp_route_risk(p0: Vector2, dest: Vector2, threats: Array, speed: float,
 	return risk
 
 
-# Where to AIM at a reward that may be moving. r[5] is world_view's measured
+# Where to AIM at a reward that may be moving. r[R_VEL] is world_view's measured
 # loot-alien velocity (optional 6th field; every older reward is static). Two
 # fixed-point iterations: eta depends on the predicted point, which depends on
 # eta. The speed is capped just under our own so a faster body cannot send the
 # aim to infinity -- the bot then chases it, the honest fallback.
 func _opp_aim_point(r: Array, p0: Vector2, speed: float) -> Vector2:
-	var pos = r[0]
-	if r.size() > 5 and typeof(r[5]) == TYPE_VECTOR2:
-		var vel = r[5]
+	var pos = r[R_POS]
+	if r.size() > 5 and typeof(r[R_VEL]) == TYPE_VECTOR2:
+		var vel = r[R_VEL]
 		if vel.length() > 0.001:
 			var vcap = max(speed * 0.95, 1.0)
 			if vel.length() > vcap:
 				vel = vel.normalized() * vcap
 			var eta = p0.distance_to(pos) / max(speed, 1.0)
 			for _i in range(2):
-				pos = r[0] + vel * eta
+				pos = r[R_POS] + vel * eta
 				eta = p0.distance_to(pos) / max(speed, 1.0)
 	return pos
 
@@ -2223,7 +2314,7 @@ func _opp_reward_near(rewards: Array, at: Vector2, speed: float) -> Array:
 	for r in rewards:
 		if r.size() < 2:
 			continue
-		var d = r[0].distance_to(at)
+		var d = r[R_POS].distance_to(at)
 		if d < tol and d < best_d:
 			best_d = d
 			found = r
@@ -2233,8 +2324,8 @@ func _opp_reward_near(rewards: Array, at: Vector2, speed: float) -> Array:
 # A held reward (revive zone) is NOT an opportunity: the legacy mechanics own
 # it, and walking a detour for a zone you must stand in confuses both layers.
 func _opp_reward_held(r: Array) -> bool:
-	if r.size() > 3 and float(r[3]) > 0.0:
-		if not (r.size() > 4 and float(r[4]) > 0.0):
+	if r.size() > 3 and float(r[R_RIM]) > 0.0:
+		if not (r.size() > 4 and float(r[R_WALKON]) > 0.0):
 			return true
 	return false
 
@@ -2247,12 +2338,12 @@ func _opp_special_near(targets: Array, at: Vector2, radius: float) -> Array:
 	var best_d = 1e18
 	var r_sq = radius * radius
 	for t in targets:
-		if t.size() < 4 or float(t[3]) <= 0.0:
+		if t.size() <= TG_SPECIAL or float(t[TG_SPECIAL]) <= 0.0:
 			continue
-		var dsq = t[0].distance_squared_to(at)
+		var dsq = t[TG_POS].distance_squared_to(at)
 		if dsq <= r_sq and dsq < best_d:
 			best_d = dsq
-			found = [t[0]]
+			found = [t[TG_POS]]
 	return found
 
 
@@ -2295,9 +2386,9 @@ func _update_opportunity(p0: Vector2, speed: float, body_radius: float,
 		var r = _opp_reward_near(rewards, _opp_src, speed)
 		if r.empty():
 			return _opp_release()          # picked / despawned
-		_opp_src = r[0]
+		_opp_src = r[R_POS]
 		_goal_pos = _opp_aim_point(r, p0, speed)
-		if p0.distance_to(r[0]) < GOAL_DONE_R:
+		if p0.distance_to(r[R_POS]) < GOAL_DONE_R:
 			return _opp_release()          # arrived: the game collects this/next frame
 		if _hp_ratio < _opp_hp_floor() * OPP_ABORT_HP_FRAC:
 			return _opp_release()
@@ -2322,15 +2413,15 @@ func _update_opportunity(p0: Vector2, speed: float, body_radius: float,
 	var best_kind = ""
 	if bounty_enable != 0.0:
 		for t in targets:
-			if t.size() < 4 or float(t[3]) <= 0.0:
+			if t.size() <= TG_SPECIAL or float(t[TG_SPECIAL]) <= 0.0:
 				continue
-			var val = _opp_special_value(int(t[3])) * bounty_enable
+			var val = _opp_special_value(int(t[TG_SPECIAL])) * bounty_enable
 			if val <= 0.0:
 				continue
-			var d = p0.distance_to(t[0])
+			var d = p0.distance_to(t[TG_POS])
 			if d <= desired_t or d > OPP_TARGET_MAX:
 				continue
-			var risk = _opp_route_risk(p0, t[0], threats, speed, body_radius, mitigation)
+			var risk = _opp_route_risk(p0, t[TG_POS], threats, speed, body_radius, mitigation)
 			if risk > val * (OPP_RISK_BASE + OPP_RISK_PER_AGG * agg) + OPP_RISK_FLAT * agg:
 				continue
 			var score = val - risk - OPP_ETA_COST * (d / max(speed, 1.0))
@@ -2338,8 +2429,8 @@ func _update_opportunity(p0: Vector2, speed: float, body_radius: float,
 				best_score = score
 				best_value = val
 				best_risk = risk
-				best_pos = t[0]
-				best_src = t[0]
+				best_pos = t[TG_POS]
+				best_src = t[TG_POS]
 				best_kind = "target"
 	if goal_enable != 0.0:
 		for r in rewards:
@@ -2355,11 +2446,11 @@ func _update_opportunity(p0: Vector2, speed: float, body_radius: float,
 			# special-target bound; static rewards keep the v2.5 GOAL_RANGE.
 			# If even the AIM is beyond the bound, fall back to the current
 			# position when that is still chaseable, else skip.
-			var moving = r.size() > 5 and typeof(r[5]) == TYPE_VECTOR2 \
-					and r[5].length() > 0.001
+			var moving = r.size() > 5 and typeof(r[R_VEL]) == TYPE_VECTOR2 \
+					and r[R_VEL].length() > 0.001
 			var rmax = OPP_TARGET_MAX if moving else GOAL_RANGE
 			if d2 > rmax:
-				aim = r[0]
+				aim = r[R_POS]
 				d2 = p0.distance_to(aim)
 			if d2 > rmax or d2 < GOAL_DONE_R:
 				continue
@@ -2372,7 +2463,7 @@ func _update_opportunity(p0: Vector2, speed: float, body_radius: float,
 				best_value = rv
 				best_risk = risk2
 				best_pos = aim
-				best_src = r[0]
+				best_src = r[R_POS]
 				best_kind = "reward"
 	if best_kind == "":
 		return false
@@ -2411,7 +2502,7 @@ func _update_goal(p0: Vector2, threats: Array, rewards: Array) -> bool:
 		_goal_ticks -= 1
 		var still = false
 		for r in rewards:
-			if r.size() > 0 and r[0].distance_to(_goal_pos) < 30.0:
+			if r.size() > 0 and r[R_POS].distance_to(_goal_pos) < 30.0:
 				still = true
 				break
 		if not still:
@@ -2444,21 +2535,21 @@ func _update_goal(p0: Vector2, threats: Array, rewards: Array) -> bool:
 	for r in rewards:
 		if r.size() < 2:
 			continue
-		var v = float(r[1])
+		var v = float(r[R_VALUE])
 		if v < GOAL_MIN_VALUE:
 			continue
 		# A held zone (revive) is not an item you walk over and consume.
-		var held = r.size() > 3 and float(r[3]) > 0.0 \
-				and not (walk_enable != 0.0 and r.size() > 4 and float(r[4]) > 0.0)
+		var held = r.size() > 3 and float(r[R_RIM]) > 0.0 \
+				and not (walk_enable != 0.0 and r.size() > 4 and float(r[R_WALKON]) > 0.0)
 		if held:
 			continue
-		var d = p0.distance_to(r[0])
+		var d = p0.distance_to(r[R_POS])
 		if d > GOAL_RANGE or d < GOAL_DONE_R:
 			continue
 		var u = v / (1.0 + d / GOAL_FALLOFF)
 		if u > best_u:
 			best_u = u
-			best_pos = r[0]
+			best_pos = r[R_POS]
 			best_val = v
 	if best_u <= 0.0:
 		return false
@@ -2863,14 +2954,14 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 
 	for r in rewards:
 		# Attracted rewards (drops, food) are taken at the attract rim, so the
-		# distance that matters is to the rim; a felled reward (tree, r[2]
-		# false) still has to be reached. A HELD reward (r[3] = its own rim,
+		# distance that matters is to the rim; a felled reward (tree, r[R_ATTRACTED]
+		# false) still has to be reached. A HELD reward (r[R_RIM] = its own rim,
 		# e.g. a dead scapegoat's revive zone) pays its value to every move
 		# that ENDS inside the rim, so standing in it keeps earning and
 		# stepping out costs the same -- that is what makes the bot stay the
 		# three seconds a revive takes.
 		#
-		# v2.5.0 WALK-ON rewards (r[4] = 1, world_view's DLC evolution items):
+		# v2.5.0 WALK-ON rewards (r[R_WALKON] = 1, world_view's DLC evolution items):
 		# the game only collects these when the pickup AREA is stepped over
 		# them, and the old 4-tuple path read their rim as "held" -- so the
 		# cost happily parked the bot on the rim, paying itself every frame
@@ -2879,32 +2970,32 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 		# item (rim NOT subtracted from d0/d1, so there is still a gradient
 		# inside the rim) and pay `pickup_taken` on the move that crosses the
 		# rim. --arb-walk=0 restores the 2.4.0 held reading exactly.
-		var is_walk = walk_enable != 0.0 and r.size() > 4 and float(r[4]) > 0.0
-		var held = not is_walk and r.size() > 3 and float(r[3]) > 0.0
+		var is_walk = walk_enable != 0.0 and r.size() > 4 and float(r[R_WALKON]) > 0.0
+		var held = not is_walk and r.size() > 3 and float(r[R_RIM]) > 0.0
 		var gain = 0.0
 		var d1 = 0.0
 		if is_walk:
 			# one-shot walk-on: raw distances, gradient goes all the way in
-			var wrim = float(r[3])
-			var wd0 = p0.distance_to(r[0])
-			d1 = p_end.distance_to(r[0])
+			var wrim = float(r[R_RIM])
+			var wd0 = p0.distance_to(r[R_POS])
+			d1 = p_end.distance_to(r[R_POS])
 			var wclosed = (wd0 - d1) / max(speed * horizon, 1.0)
-			gain = w_pickup * r[1] * wclosed \
+			gain = w_pickup * r[R_VALUE] * wclosed \
 					/ (1.0 + max(wd0 - wrim, 0.0) / PICKUP_FALLOFF)
 			if d1 <= wrim and wd0 > wrim:
-				gain += w_pickup * r[1] * pickup_taken       # stepped onto the item
+				gain += w_pickup * r[R_VALUE] * pickup_taken       # stepped onto the item
 		else:
-			var rim = float(r[3]) if held \
-					else (_pickup_radius if (r.size() < 3 or r[2]) else 0.0)
-			var d0 = max(p0.distance_to(r[0]) - rim, 0.0)
-			d1 = max(p_end.distance_to(r[0]) - rim, 0.0)
+			var rim = float(r[R_RIM]) if held \
+					else (_pickup_radius if (r.size() < 3 or r[R_ATTRACTED]) else 0.0)
+			var d0 = max(p0.distance_to(r[R_POS]) - rim, 0.0)
+			d1 = max(p_end.distance_to(r[R_POS]) - rim, 0.0)
 			var closed = (d0 - d1) / max(speed * horizon, 1.0)   # -1..1, share of the move spent approaching
-			gain = w_pickup * r[1] * closed / (1.0 + d0 / PICKUP_FALLOFF)
+			gain = w_pickup * r[R_VALUE] * closed / (1.0 + d0 / PICKUP_FALLOFF)
 			if held:
 				if d1 == 0.0:
-					gain += w_pickup * r[1]                  # inside the zone: keep earning
+					gain += w_pickup * r[R_VALUE]                  # inside the zone: keep earning
 			elif d1 == 0.0 and d0 > 0.0:
-				gain += w_pickup * r[1] * pickup_taken       # this move collects it
+				gain += w_pickup * r[R_VALUE] * pickup_taken       # this move collects it
 		total -= gain
 
 	# -- v2.5.0: committed item goal pull (see the GOAL_* block) --
