@@ -15,12 +15,33 @@
         "windup": 0,
         "hitbox": 0,
         "opp": 0,
-        "agg": 0
+        "agg": 0,
+        "cov": 0,
+        "tapcd": 0
       }
     },
     {
       "name": "planning",
       "overrides": {}
+    },
+    {
+      "name": "v27",
+      "overrides": {
+        "cov": 0,
+        "tapcd": 0
+      }
+    },
+    {
+      "name": "no_cov",
+      "overrides": {
+        "cov": 0
+      }
+    },
+    {
+      "name": "no_tapcd",
+      "overrides": {
+        "tapcd": 0
+      }
     },
     {
       "name": "no_opp",
@@ -59,5 +80,5 @@
       }
     }
   ],
-  "note": "v2.7.0 unified-opportunity A/B. control = exact v2.4.0 behaviour (all THIRTEEN switches 0: breakout/goal/pursuit/walk/waveend + space/bounty/boxes + roomtrack/windup/hitbox + opp/agg; agg is inert while opp=0). planning = shipped v2.7.0 defaults (empty overrides). Attribution arms: no_opp {opp:0} = exact v2.6.1, agg0 {agg:0} / agg2 {agg:2} = risk dial, no_roomtrack/no_windup/no_hitbox = v2.6.1 contact fixes. Older builds ignore unknown keys, so a 2.6.1/2.6.0/2.5.0/2.4.0 zip can serve as an external control (it will simply ignore the new keys)."
+  "note": "v2.8.0 high-value-coverage / live-CD-sync A/B. control = exact v2.4.0 behaviour (all FIFTEEN switches 0: breakout/goal/pursuit/walk/waveend + space/bounty/boxes + roomtrack/windup/hitbox + opp/agg + cov/tapcd; agg and cov are inert while opp=0; tapcd is a movement-layer switch, so it is listed 0 for contract completeness). planning = shipped v2.8.0 defaults (empty overrides). Attribution arms: v27 {cov:0,tapcd:0} = exact v2.7.0, no_cov {cov:0} / no_tapcd {tapcd:0}, no_opp {opp:0} = v2.6.1 opportunity layer (tapcd default still on; add tapcd:0 for full v2.6.1), agg0/agg2 {agg:0/2} = risk dial, no_roomtrack/no_windup/no_hitbox = v2.6.1 contact fixes. --arb-dpsref=2 is NOT in these arms (opt-in killability estimate, needs its own sweep). Older builds ignore unknown keys, so a 2.7.0/2.6.1/2.6.0/2.5.0/2.4.0 zip can serve as an external control (it will simply ignore the new keys)."
 }

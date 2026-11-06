@@ -255,6 +255,24 @@ const OPP_SPECIAL_RANGES = [900.0, 1400.0, 1600.0]   # by --arb-agg 0/1/2
 const OPP_SPECIAL_MAX = 8
 const OPP_LOOT_VALUE = 8.0       # fleeing loot alien once the opportunity layer
                                  # can intercept it (was 6 with bounty, 4 without)
+# -- v2.8.0: high-value coverage (--arb-cov) + live weapon-cooldown tap ------
+# The v2.7 opportunity layer covers special MONSTERS with an explicit value
+# table, but PRODUCES still enter it at their old incidental prices (a normal
+# item crate 5, an evolution item 6-9, a tree 3), so "go get that valuable
+# thing" stayed rare for exactly the pickups a player would detour for. v2.8
+# tags the reward classes it can identify and lets the arbiter price them
+# explicitly (values live in arbiter OPP_VALUE_*). Also splits Boss (class 1,
+# value 50) from Elite (class 4, value 30) and exposes the live per-weapon
+# cooldown so fire_still kits can stop exactly when a weapon is ready
+# (--arb-tapcd) instead of the fixed 2-move/2-stop cycle.
+# `opp=0` -> no tags, no class 4, exact v2.6.1 tuples; `cov=0` -> exact v2.7.0.
+const COV_ENABLE = 1.0
+const TAP_CD_ENABLE = 1.0
+const OPP_TAG_CRATE = 1          # reward[6]: normal item crate
+const OPP_TAG_LEGENDARY = 2      # reward[6]: legendary item crate
+const OPP_TAG_EVO = 3            # reward[6]: evolution consumable
+const OPP_TAG_LOOT = 4           # reward[6]: fleeing loot alien
+const OPP_TAG_TREE = 5           # reward[6]: tree (living, felled by walking)
 const BOX_VALUE = 5.0            # a normal item crate: one item choice
 const LEGENDARY_BOX_VALUE = 10.0 # legendary crate: one legendary item choice
 const BIRTH_STEP_COST = 4.0      # avoid_births: a red X priced as a small standing AoE.
@@ -819,6 +837,13 @@ var _loot_prev = {}              # loot-alien instance_id -> [pos, ticks_ms]
 var _loot_seen = {}              # ids seen this gather (cache pruning)
 var _loot_wave = -1              # wave the loot cache belongs to
 
+# v2.8.0 switches / live weapon state (see the COV_ block above).
+var cov_enable = COV_ENABLE      # --arb-cov: high-value coverage values/tags
+var tap_cd = TAP_CD_ENABLE       # --arb-tapcd: expose fire_wait_frames to the
+                                 # movement behaviour (0 = fixed 2+2 tap)
+var fire_wait_frames = -1.0      # min live `_current_cooldown` over current
+                                 # weapons, in frames; -1 = unknown/no weapons
+
 # Sweepable: --arb-charprofile=0 disables ALL character-specific logic at once,
 # so "generic strategy on this character" stays an exact control arm.
 # --arb-goldval overrides just the Builder's gold value (0 = ignore, positive
@@ -1075,6 +1100,16 @@ func apply_overrides(d: Dictionary) -> void:
 		# v2.7.0: risk appetite 0..2 -> special gather radius 900/1400/1600.
 		opp_agg = clamp(float(d["agg"]), 0.0, 2.0)
 		print("WORLDVIEW opp_agg=%.2f" % opp_agg)
+	if d.has("cov"):
+		# v2.8.0: 0 = exact v2.7.0 (Boss/Elite share class 1, no reward tags,
+		# old incidental produce values).
+		cov_enable = float(d["cov"])
+		print("WORLDVIEW cov_enable=%.0f" % cov_enable)
+	if d.has("tapcd"):
+		# v2.8.0: 0 = exact v2.7.0 fixed 2-move/2-stop tap (fire_wait_frames
+		# stays -1, the movement behaviour falls back to the old cycle).
+		tap_cd = float(d["tapcd"])
+		print("WORLDVIEW tap_cd=%.0f" % tap_cd)
 
 
 # Expected damage applications from a body over one horizon: how often it hits
@@ -1114,6 +1149,22 @@ func gather(main, player) -> void:
 
 	weapon_range = _weapon_range(player)
 	_refresh_kill_ref(player)
+	# v2.8.0: live per-weapon cooldown for the CD-synced tap (--arb-tapcd).
+	# The game fires every weapon whose `_current_cooldown <= 0` on the FIRST
+	# frame movement input is zero, so the minimum remaining cooldown is exactly
+	# "how many frames until a stop frame buys a shot". -1 = unknown/no weapons:
+	# the movement behaviour then keeps the old fixed 2+2 cycle.
+	fire_wait_frames = -1.0
+	if tap_cd != 0.0 and ("current_weapons" in player):
+		var min_wait = 1e18
+		var seen_weapon = false
+		for w in player.current_weapons:
+			if not is_instance_valid(w) or not ("_current_cooldown" in w):
+				continue
+			min_wait = min(min_wait, max(float(w._current_cooldown), 0.0))
+			seen_weapon = true
+		if seen_weapon:
+			fire_wait_frames = min_wait
 	var character_id = RunData.get_player_character(player.player_index).my_id
 	# char_profile = 0 (--arb-charprofile=0) empties the row, which is what makes
 	# "this character, generic steering" an exact control arm rather than an
@@ -1215,15 +1266,19 @@ func gather(main, player) -> void:
 		var kind = _consumable_kind(c)
 		if kind != "":
 			last_evo_ground_n += 1
+		# v2.8.0: opportunity tag for the high-value produce classes (crate /
+		# legendary crate / evolution item). --arb-cov=0 and opp=0 keep tag 0,
+		# so the tuple stays exactly the v2.7.0/v2.6.1 one.
+		var opp_tag = _opp_consumable_tag(c)
 		if evo_mult == 0.0:
-			rewards.push_back([c.position,
-					_food_value(food_mode, c.position, missing_hp, spawner)])
+			rewards.push_back(_opp_reward_tag(opp_tag, [c.position,
+					_food_value(food_mode, c.position, missing_hp, spawner)]))
 			continue
 		var v = _consumable_value(c, player, food_mode, missing_hp, spawner)
 		if v == 0.0:
 			continue
 		if _consumable_is_food(c):
-			rewards.push_back([c.position, v])
+			rewards.push_back(_opp_reward_tag(opp_tag, [c.position, v]))
 		else:
 			# Evolution pickup: rim (see EVO_WALK_RIM) so a move that ENDS
 			# inside the physical pickup circle is paid in full; rim 0 would
@@ -1233,10 +1288,11 @@ func gather(main, player) -> void:
 			# eta+margin", so the scaling is exactly 1.0 unless time is short.
 			v *= _evo_waveend_scale(kind, sqrt(dist_sq))
 			if walk_tag != 0.0:
-				rewards.push_back([c.position, v, false, EVO_WALK_RIM,
-						EVO_WALK_TAG])
+				rewards.push_back(_opp_reward_tag(opp_tag,
+						[c.position, v, false, EVO_WALK_RIM, EVO_WALK_TAG]))
 			else:
-				rewards.push_back([c.position, v, false, EVO_WALK_RIM])
+				rewards.push_back(_opp_reward_tag(opp_tag,
+						[c.position, v, false, EVO_WALK_RIM]))
 	# Drops are collected by the attract area, not by contact: the arbiter
 	# prices distance to its rim (profile pickup_radius) and pays a "taken"
 	# bonus for a move that ends inside it. A drop already flying to us is
@@ -1306,7 +1362,13 @@ func gather(main, player) -> void:
 		for n in spawner.neutrals:
 			if is_instance_valid(n) and not n.dead and not n._pending_die \
 					and n.position.distance_squared_to(pos) < pickup_sq:
-				rewards.push_back([n.position, tree_value, false])   # felled, not attracted
+				# v2.8.0: a positive tree value is a high-value produce (drops a
+				# consumable + material). Negative values (Cryptid's tree
+				# policy) stay untagged so the opportunity layer never chases
+				# them. cov=0/opp=0 -> tag 0 -> exact old 3-field tuple.
+				var tree_tag = OPP_TAG_TREE if tree_value > 0.0 else 0
+				rewards.push_back(_opp_reward_tag(tree_tag,
+						[n.position, tree_value, false]))   # felled, not attracted
 
 	# Enemy spawn markers (the red X). EntityBirth nodes are pooled under
 	# main._births_container; an active one is shown by start() and hidden
@@ -1476,14 +1538,29 @@ func _refresh_kill_ref(player) -> void:
 	_kill_ref = KILL_HP_REF
 	if dps_ref_scan == 0.0 or not ("current_weapons" in player):
 		return
+	# v2.8.0 (--arb-dpsref=2): the old `w.stats` read is the weapon's BASE
+	# resource (decompiled weapon_service.gd copies from_stats into a NEW
+	# current_stats and applies attack-speed / %damage / projectile / range
+	# there), so the legacy estimate ignores every build-wide offensive stat.
+	# Mode 2 reads the live computed stats instead. Kept opt-in for now: it
+	# changes every killability price, and the user has not run a real-game A/B
+	# for it yet (mode 1 = legacy default, mode 0 = static KILL_HP_REF).
+	var use_live = int(round(dps_ref_scan)) >= 2
 	var dps = 0.0
 	for w in player.current_weapons:
-		if not is_instance_valid(w) or not w.stats:
+		if not is_instance_valid(w):
+			continue
+		var ws = null
+		if use_live and ("current_stats" in w) and w.current_stats != null:
+			ws = w.current_stats
+		elif w.stats:
+			ws = w.stats
+		if ws == null:
 			continue
 		var nproj = 1.0
-		if "nb_projectiles" in w.stats:
-			nproj = max(float(w.stats.nb_projectiles), 1.0)
-		dps += float(w.stats.damage) * nproj * 60.0 / max(float(w.stats.cooldown), 1.0)
+		if "nb_projectiles" in ws:
+			nproj = max(float(ws.nb_projectiles), 1.0)
+		dps += float(ws.damage) * nproj * 60.0 / max(float(ws.cooldown), 1.0)
 	_kill_ref = clamp(dps * KILL_TIME, KILL_HP_REF, KILL_REF_MAX)
 	if abs(_kill_ref - _kill_ref_logged) > 25.0:
 		_kill_ref_logged = _kill_ref
@@ -1695,6 +1772,42 @@ func _box_value(c) -> float:
 		if my_id == "consumable_item_box":
 			return BOX_VALUE
 	return 0.0
+
+
+# v2.8.0: opportunity tag for a ground consumable (see the OPP_TAG_* block).
+# Crates respect --arb-boxes, evolution items respect --arb-evo, so disabling
+# the old layer also disables the new pricing for that class. 0 = no tag.
+func _opp_consumable_tag(c) -> int:
+	if opp_enable == 0.0 or cov_enable == 0.0 or c == null:
+		return 0
+	if boxes_mult != 0.0:
+		var boxv = _box_value(c)
+		if boxv >= LEGENDARY_BOX_VALUE:
+			return OPP_TAG_LEGENDARY
+		if boxv > 0.0:
+			return OPP_TAG_CRATE
+	if evo_mult != 0.0 and _consumable_kind(c) != "":
+		return OPP_TAG_EVO
+	return 0
+
+
+# v2.8.0: append the opportunity tag at reward index 6 while PRESERVING every
+# existing tuple semantic. r[2] missing means "attracted" (rim = pickup_radius)
+# in the arbiter's cost path, so the padding must put `true` there, not 0. The
+# tag is the LAST field, still a plain Array, so every legacy reader (indices
+# 0-4) sees exactly what it saw before. opp=0/cov=0/tag=0 return the input
+# array untouched, which is what keeps the control arms byte-identical.
+func _opp_reward_tag(tag: int, r: Array) -> Array:
+	if tag <= 0 or opp_enable == 0.0 or cov_enable == 0.0:
+		return r
+	var out = r.duplicate()
+	while out.size() < 6:
+		if out.size() == 2:
+			out.push_back(true)     # keep the "attracted" default for r[2]
+		else:
+			out.push_back(0.0)
+	out.push_back(float(tag))
+	return out
 
 
 # Healing consumables keep the old attract-rim semantics (the arbiter prices
@@ -2039,7 +2152,11 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 							lvel = lvel.normalized() * 900.0
 				_loot_prev[lid] = [unit.position, now_ms]
 				_loot_seen[lid] = true
-				rewards.push_back([unit.position, _loot_value, true, 0.0, 0.0, lvel])
+				# v2.8.0: tag 4 = high-value produce; only while bounty is on
+				# (bounty=0 means "the v2.6 loot pricing is off", so no tag).
+				var loot_tag = OPP_TAG_LOOT if bounty_tag != 0.0 else 0
+				rewards.push_back(_opp_reward_tag(loot_tag,
+						[unit.position, _loot_value, true, 0.0, 0.0, lvel]))
 			else:
 				rewards.push_back([unit.position, _loot_value])
 		return
@@ -2083,7 +2200,15 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 	var special = 0
 	if opp_enable != 0.0 or bounty_tag != 0.0:
 		if unit is Boss:
-			special = 1
+			# v2.8.0 (--arb-cov): split Boss (class 1, value 50) from Elite
+			# (class 4, value 30) because the opportunity table prices them
+			# differently. cov=0 or opp=0 keeps the exact v2.6.1/v2.7.0
+			# class-1-for-both semantics.
+			if cov_enable != 0.0 and opp_enable != 0.0 \
+					and ("is_elite" in unit) and unit.is_elite:
+				special = 4
+			else:
+				special = 1
 		elif _is_egg(unit):
 			special = 2
 		elif cursed or evolved:

@@ -11,6 +11,7 @@ The character moves and dodges by itself during waves. [b]Every decision stays y
 [b]What it does[/b]
 [list]
 [*]Dodges bullets, chargers, AoE telegraphs, spawn markers
+[*]High-value coverage + live CD sync (v2.8.0): Boss/Elite priced apart (50 / 30) and produces get explicit values -- crate 20, legendary 34, evolution item 20, loot alien 12, tree 7 (reward tag index 6, max(raw, table); healing fruit keeps raw food); fire_still tap-move stops ONE frame when a weapon is ready (live cooldown sync) instead of fixed 2+2. Opt-outs: --arb-cov / --arb-tapcd (0 = exact v2.7.0); --arb-dpsref=2 opt-in killability
 [*]Unified opportunity planning (v2.7.0): one value-vs-route-risk planner replaces the v2.6 bounty/goal gates -- explicit special-target values (boss/elite 30, spawner egg 40, cursed/evolved 18), detours priced against expected route damage; special targets gathered to 900/1400/1600 px by --arb-agg; fleeing loot aliens intercepted via measured velocity. Opt-outs: --arb-opp (0 = exact v2.6.1) / --arb-agg
 [*]Kites at weapon range, collects materials/food/trees, avoids walls/corners
 [*]Planning (v2.5.0): breaks out of an encirclement BEFORE the ring closes and commits to high-value pickups it would otherwise pass (DLC evolution fruits, hurt fruit, trees), incl. ones lost at the wave horn
@@ -40,11 +41,10 @@ Steering/perception core is from [url=https://github.com/boardengineer/botato]BO
 
 角色在波次内自动走位、闪避、砍树、受伤吃果子、捡材料；[b]所有决策仍由你来做[/b]：升级三选一、商店购买/刷新/锁定、开箱/消耗品、点"下一波"、角色/武器/难度。
 
+v2.8.0 高价值全覆盖 + 实时攻击 CD 同步：Boss/精英分开定价（50/30），物品箱 20、传奇箱 34、进化物品 20、掉落怪 12、树 7 按显式价值进入机会层（reward 索引 6 打 tag，取 max(原值, 表值)；治疗果子保持 food 价值）；fire_still 角色的 tap-move 改为“武器 ready 才停 1 帧”的实时 CD 同步。开关：--arb-cov / --arb-tapcd（=0 精确 v2.7.0）/ --arb-dpsref=2（实验性 killability）。
 v2.7.0 统一机会规划：v2.6 的“赏金接近 + 物品承诺”合并为“价值 − 路线风险”机会层——Boss/精英 30、蛋 40、诅咒/进化 18 显式定价，按“走过去要吃多少伤害”决定值不值得；特殊目标可见半径 900/1400/1600px（按 --arb-agg），逃跑掉落怪按实测速度拦截。开关：--arb-opp（=0 精确 v2.6.1）/ --arb-agg（0/1/2；13 开关全 0 回 2.4.0）。
 v2.6.1 贴身/碰撞修复：不再贴着怪打转——拥挤项改为追击投影；蓄力定身怪补上接触价；精英/Boss/DLC 非圆形碰撞体的接触距离不再低估。开关：--arb-roomtrack / --arb-windup / --arb-hitbox，全 0 可回退。
-v2.6.0 空间规划/特殊目标：不会被挤到地图边缘（贴墙带撤离 + open-floor 势场），会主动接近精英/Boss、蛋、诅咒/进化怪，物品箱按物品定价、掉落怪值得追。开关：--arb-space / --arb-bounty / --arb-boxes，全 0 可回退。
-
-v2.5.0 规划能力：会预测“马上要被包围”并在环合上之前主动突围；给高价值物品（DLC 进化果/受伤果子/树）做目标承诺；修好“走到进化物品旁却不捡”的拾取语义，并给波末会消失的机械/异变果实加紧迫度。开关：--arb-breakout / --arb-goal / --arb-pursuit / --arb-walk / --arb-waveend，全 0 回 2.4.0。
+v2.5.0–2.6.0 规划/空间：合围前预判突围 + 高价值物品目标承诺；贴墙带撤离 + open-floor 势场；赏金接近特殊目标（Boss/精英、蛋、诅咒/进化）；物品箱按“一个物品”定价、掉落怪值得追。
 
 v2.4.0 DLC 适配：默认主动交战诅咒怪（DLC1）和机械/异变进化怪（DLC2），并主动捡新 DLC 的进化物品；不想打的时候用负数开关（如 --arb-curse=-1）进入回避姿态。开关全 0 精确回到 2.3.0。
 
@@ -61,12 +61,8 @@ v2.3.0 策略升级：远程 build 保持射程边缘风筝而不是贴脸；静
 
 [b]Changelog[/b]
 [list]
+[*]2.8.0 — high-value coverage + live attack CD sync: Boss/Elite split (class 1 = 50 / class 4 = 30 x --arb-bounty); produces get explicit values via reward index 6 -- crate 20, legendary 34, evolution item 20, loot alien 12, tree 7 (max(raw, table); healing fruit keeps raw food). fire_still tap-move now stops exactly 1 frame when a weapon is ready (live cooldown sync) instead of fixed 2+2 (hop/pin/no-weapon fallbacks). --arb-dpsref=2 opts into current_stats killability (default stays 1). Opt-outs: --arb-cov / --arb-tapcd (0 = exact v2.7.0); all 15 switches at 0 = exact v2.4.0.
 [*]2.7.0 — unified opportunity planning: one value-vs-route-risk planner replaces the v2.6 bounty/goal gates -- explicit special-target values (boss/elite 30, spawner egg 40, cursed/evolved 18 x --arb-bounty), route damage from the same threat model (allowed risk = value*(0.10+0.20*agg)+2*agg, HP floors 0.55/0.35/0.20), 100-frame commitment, value-scaled pull, close-in candidate; special targets gathered to 900/1400/1600 px by --arb-agg; fleeing loot aliens valued 8 and intercepted via measured velocity. Opt-outs: --arb-opp (0 = exact v2.6.1) / --arb-agg; all 13 switches at 0 = exact v2.4.0.
 [*]2.6.1 — contact fix: crowded terms project chasers as pursuers (fleeing is no longer priced as MORE crowded than orbiting), winding-up bodies are priced, elite/boss/DLC non-circle hitboxes are never under-estimated. Opt-outs: --arb-roomtrack / --arb-windup / --arb-hitbox.
-[*]2.6.0 — space & opportunities: wall-band retreat plus a weak open-floor potential against edge drift; bounty approach toward special targets (boss/elite, spawner egg, cursed/evolved) inside a safety window; item crates priced as items, loot aliens worth chasing. Opt-outs: --arb-space / --arb-bounty / --arb-boxes.
-[*]2.5.0 — planning: pre-emptive breakout from a closing encirclement (pursuit-rollout escape line; contact discounted, bullets/dashes/AOE full price); committed high-value item goals with a close-in candidate; one-shot walk-on pickup for DLC evolution consumables; end-of-wave urgency for meca/mutant fruits; pursuit-aware second ply. Exact v2.4 control arm: all five v2.5 switches at 0.
-[*]2.4.0 — DLC-aware movement: engages cursed / evolved meca-mutant enemies by default (signed --arb-curse / --arb-evolved; negative = avoid); walks over Primal Dread evolution consumables (--arb-evo, 0 = old); non-healing consumables no longer priced as food.
-[*]2.3.0 — smarter movement: ranged standoff/kiting, tree-felling and hurt-fruit terms, 2-ply lookahead planner, hit-adaptive caution; exact opt-out flags (--arb-kite / --arb-tree / --arb-food / --arb-plan / --arb-adapt).
-[*]2.2.2 — adaptive profile also infers economy/food/tree mechanics; local tuning hook (user://auto-battler-overrides.json).
-[*]2.2.1 — first public build.
+[*]2.2–2.6.0 — earlier releases: adaptive build-trait profile (2.2), kiting/tree/hurt-fruit/2-ply planner/adaptive caution (2.3), DLC cursed/evolved stances + evolution pickups (2.4), pre-emptive breakout + committed item goals (2.5), space planning + bounty approach (2.6).
 [/list]

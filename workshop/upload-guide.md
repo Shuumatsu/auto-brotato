@@ -6,7 +6,7 @@
 
 | 字段 | 选择/填写 |
 |---|---|
-| **Mod file**（点 Select Mod） | `workshop/AutoBattler - Movement Autopilot v2.7.0.zip` |
+| **Mod file**（点 Select Mod） | `workshop/AutoBattler - Movement Autopilot v2.8.0.zip` |
 | **Preview image**（点 Select Preview） | `workshop/preview.png` |
 | **Workshop ID** | `3834096920`（更新已有物品） |
 | **Tags** | 选 `Utilities`，可选再加 `New Mechanics` |
@@ -40,7 +40,7 @@ Upload workshop item ... failed (Failed to initialize build on server (No Connec
 这是 Steam 会话层面的冲突，不是网络/Mod 问题；上传工具本身不含登录逻辑。
 **建议直接在 Windows 上更新**：
 
-1. 把 `workshop/AutoBattler - Movement Autopilot v2.7.0.zip` 传到 Windows；
+1. 把 `workshop/AutoBattler - Movement Autopilot v2.8.0.zip` 传到 Windows；
 2. 在 Windows 的 Brotato 目录运行 `GodotWorkshopUtility.exe`；
 3. Select Mod → 该 zip；Workshop ID → `3834096920`；Upload；
 4. 在网页编辑物品，粘贴 `workshop/description.txt`。
@@ -49,6 +49,6 @@ Upload workshop item ... failed (Failed to initialize build on server (No Connec
 
 ## 从 GitHub Release 下载时
 
-GitHub 会把附件名里的空格替换成点（如 `AutoBattler.-.Movement.Autopilot.v2.7.0.zip`）。
+GitHub 会把附件名里的空格替换成点（如 `AutoBattler.-.Movement.Autopilot.v2.8.0.zip`）。
 上传工具会用 zip 文件名当 Workshop 标题，所以**下载后请重命名回**
-`AutoBattler - Movement Autopilot v2.7.0.zip` 再选择。
+`AutoBattler - Movement Autopilot v2.8.0.zip` 再选择。

@@ -14,6 +14,7 @@
 ## 它做什么
 
 - ✅ 自动躲子弹、冲锋、AOE 预警；静场自动砍树、受伤后去吃果子、顺手捡材料
+- ✅ **高价值目标全覆盖 + 实时攻击 CD 同步（v2.8.0，第五轮试玩反馈）**：Boss/精英分开定价（50/30），物品箱/传奇箱/进化物品/掉落怪/树按显式价值表进入机会层（20/34/20/12/7）；fire_still 角色的 tap-move 改成“有武器 ready 才停 1 帧”的实时 CD 同步，走位速度与开火节奏同时改善。`--arb-cov` / `--arb-tapcd`（`=0` 精确 v2.7.0）；`--arb-dpsref=2` 为实验性 killability 候选
 - ✅ **统一机会规划（v2.7.0，第四轮试玩反馈）**：特殊目标/产出不再被“安全窗 + 距离衰减”层层关掉——Boss/精英、生成器蛋、诅咒/进化怪与普通怪分离定价，按“价值 − 路线风险”决定值不值得去；远处特殊目标可见半径扩到 900/1400/1600px（按 `--arb-agg`），逃跑掉落怪按实测速度拦截。`--arb-opp` 总开关（`=0` 精确 v2.6.1）、`--arb-agg` 风险档
 - ✅ **贴身/碰撞修复（v2.6.1，第三轮试玩反馈）**：不再“场上没几只怪却贴着怪打转”——修复追击者在拥挤项里被按直线速度“穿身投影”的问题；同时给蓄力前的定身怪补上接触价，并让接触距离不再低估精英/Boss/DLC 非圆形碰撞体
 - ✅ **规划能力（v2.5.0）**：**合围前主动突围** + **高价值物品目标承诺**（DLC 进化果/受伤果子/树），并修好“走到进化物品旁却不捡”的拾取语义
@@ -26,6 +27,18 @@
 - ✅ 只装 2 个最小扩展：**不会替你买、刷、锁、升级、开箱、点下一波**
 - ✅ 单人 Brotato 1.2.0.1 实机验证
 
+### v2.8.0 高价值目标全覆盖 + 实时攻击 CD 同步（第五轮试玩反馈）
+
+| 问题 | 修复 |
+|---|---|
+| 高价值目标“覆盖不全” | v2.7 只给特殊**怪物**建了价值表，**产出**仍是旧“顺路价”，而且 Boss 和精英共用一个 class（都是 30）。v2.8 **覆盖层**（`--arb-cov`）：Boss = class 1 **50**、精英 = class 4 **30**（× `--arb-bounty`），生成器蛋 40、诅咒/进化 18 不变；产出按显式价值表进机会层——普通物品箱 **20**、传奇箱 **34**、进化消耗品 **20**、掉落怪 **12**、树 **7**，统一 `max(原价值, 表值)`，拉力随价值缩放。治疗果子保留 raw food 价值；毒果/复活圈/金币有意排除；`--arb-opp=0` 时 reward 元组逐字节不变。 |
+| fire_still（移动不能开火）角色走位与输出节奏不够好 | **实时攻击 CD 同步**（`--arb-tapcd`）：v2.7 是固定“走 2 帧/停 2 帧”，完全不看武器状态；现在 world_view 暴露 `fire_wait_frames`（当前武器 `_current_cooldown` 最小值），movement behavior 只在**有武器 ready 的那一帧**停 1 帧——游戏在 movement==ZERO 的第一帧发射所有 ready 武器、站桩 +50% 加成同帧生效——其余时间正常走。无武器/旧 loadout/hop/脱困时回退旧节拍。预期同时提高移动速度与 DPS。 |
+| killability 用旧 `weapon.stats` 估算，对成长型 build 偏低（opt-in） | **`--arb-dpsref=2`**：用 `weapon.current_stats`（含攻速/%伤害/多发/射程后的真实 stats）估 `damage×nproj×60/cooldown`；`0` = 静态参考、`1` = 现状。因暂无真机 A/B，**默认仍为 1**，仅作为已实现的对照候选。 |
+
+> v2.8.0 新增 2 个开关（默认开）：`--arb-cov`（高价值覆盖层；`0` = **精确 v2.7.0** 价值/class 语义）与 `--arb-tapcd`（实时 CD 同步 tap；`0` = **精确 v2.7.0** 固定 2 走/2 停）。**15 个开关全 0 = v2.4.0 精确行为**（13 + `--arb-cov=0 --arb-tapcd=0`）；**精确 v2.7.0 = `--arb-cov=0 --arb-tapcd=0`**；**精确 v2.6.1 = `--arb-opp=0 --arb-cov=0 --arb-tapcd=0`**（`tapcd` 是 movement 层开关，与机会层独立）；`--arb-dpsref` 默认 1（`0` = 静态参考 / `2` = `current_stats` 实验档）。完整控制臂列表与逐项回退见 [docs/TECHNICAL.md §三](docs/TECHNICAL.md)。
+>
+> 离线验收：`check_gd` **3 个真源文件 PASS**（movement behavior 已加入解析门禁）；`planner-selftest` **470/0 PASS**（+独立 falsifier 2476/0）；离线门禁 **32/0 PASS**（新增 G1：tag 传奇箱 1.65s 拾取 / `item_min` 26.6px，`cov=0`/control/no-tag 仍 0 拾取；F1 185.6px/1.67s 不退化；E2c `last_opp_value==50`）；Lead 单帧探针 **32/32（world_view）+ 26/26（arbiter）PASS**（覆盖值/class/tag/`fire_wait_frames`/dpsref）；闭环 sim 14 场景无退化（`opp_v34_tagged` 3.6s→2.9s）。基线 v2.7.0：`planner-selftest` 355/0、门禁 27/0。真机 A/B 待跑。
+
 ### v2.7.0 统一机会规划（第四轮试玩反馈）
 
 | 问题 | 修复 |
@@ -35,7 +48,7 @@
 | 承诺/靠近不够“敢” | 承诺 100 帧（60fps 下约 1.67s）；HP 地板 0.55/0.35/0.20（agg 0/1/2），承诺中低于地板×0.7 才放弃，目标消失/到达也释放（15 帧冷却）；新增“分段速度 close-in”候选，接近时不因全速过冲而停在射程外；reward 拉力按价值 ×1–2。 |
 | 逃跑的掉落怪（loot alien）追不上 | world_view 记录每只掉落怪的实测速度，作为 reward 第 6 字段（旧代码只读前 2 项，`opp=0` 时仍发旧元组）；默认价值 8；arbiter 做 2 次不动点拦截瞄准（预测点速度按自身 95% 封顶），从“追尾”变成“抄近路”。 |
 
-> v2.7.0 新增 2 个开关（默认开）：`--arb-opp`（统一机会层总开关；`=0` **精确回到 v2.6.1**：旧 `_update_goal`/`_update_bounty`、旧拉力、无 target close-in）与 `--arb-agg`（风险档 `0` 保守 / `1` 默认 / `2` 激进；只在 `opp=1` 时有意义）。**13 个开关全 0 = v2.4.0 精确行为**：v2.5 的 5 个 + v2.6 的 3 个 + v2.6.1 的 3 个 + v2.7 的 2 个；完整控制臂：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0 --arb-space=0 --arb-bounty=0 --arb-boxes=0 --arb-roomtrack=0 --arb-windup=0 --arb-hitbox=0 --arb-opp=0 --arb-agg=0`（`agg` 在 `opp=0` 下不生效，写 0 只为完整列出）。（v2.7.0 之前各段写的“v2.4.0 控制臂”，在 v2.7 下还需要再加 `--arb-opp=0`。）
+> v2.7.0 新增 2 个开关（默认开）：`--arb-opp`（统一机会层总开关；`=0` **精确回到 v2.6.1**：旧 `_update_goal`/`_update_bounty`、旧拉力、无 target close-in）与 `--arb-agg`（风险档 `0` 保守 / `1` 默认 / `2` 激进；只在 `opp=1` 时有意义）。**13 个开关全 0 = v2.4.0 精确行为**：v2.5 的 5 个 + v2.6 的 3 个 + v2.6.1 的 3 个 + v2.7 的 2 个；完整控制臂：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0 --arb-space=0 --arb-bounty=0 --arb-boxes=0 --arb-roomtrack=0 --arb-windup=0 --arb-hitbox=0 --arb-opp=0 --arb-agg=0`（`agg` 在 `opp=0` 下不生效，写 0 只为完整列出）。（v2.7.0 之前各段写的“v2.4.0 控制臂”，在 v2.7 下还需要再加 `--arb-opp=0`；v2.8.0 起完整控制臂为 **15 个开关**，另需 `--arb-cov=0 --arb-tapcd=0`，见上。）
 >
 > 离线验收：`planner-selftest` → **355 checks / 0 fails**（含 38 条 `opp=0` 与冻结 v2.6.1 逐值一致断言）；离线门禁 → **27 checks / 0 fails**（F1：默认臂 1.67s 进入 274px 射程边缘、target_min 185.2px，agg=0/control 停在 800px；F2 合围下默认臂存活/血量不退化；E2b 必死路线不承诺、E2c 侧身怪允许承诺）；闭环 sim：特殊目标遮挡 S1/S2 分别在 1.77/1.78s 进入射程，逃跑掉落怪拦截 **11.3s → 2.8s（4.04×）**；真机 A/B 待跑。
 

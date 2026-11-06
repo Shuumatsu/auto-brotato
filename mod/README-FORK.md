@@ -209,8 +209,8 @@ v2.7.0 replaces (B)(C)(D) with one risk-adjusted opportunity planner and fixes
 `--arb-opp=0` restores the exact v2.6.1 behaviour: legacy `_update_goal` /
 `_update_bounty`, old pulls, no target close-in, and world_view back to the old
 target radius / reward tuple form. `--arb-agg` (0 conservative / 1 default /
-2 aggressive) is inert when opp=0. The exact v2.4.0 control arm is now **all 13
-switches at 0**:
+2 aggressive) is inert when opp=0. The exact v2.4.0 control arm as of 2.7.0 is **all
+13 switches at 0**:
 
 ```
 --arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0
@@ -224,6 +224,57 @@ switches at 0**:
 F1/F2/E2b/E2c checks, closed-loop special approach 1.77/1.78 s (v2.6.1 never
 gets there), fleeing loot alien caught 11.3 s -> 2.8 s (4.04x). Live A/B still
 pending.
+
+## High-value coverage & live attack CD sync (2.8.0)
+
+Fifth play-test round: (1) high-value coverage was still incomplete -- v2.7
+priced special *monsters* explicitly, but *produces* (item crates, evolution
+items, trees, loot aliens) entered the opportunity layer at their old
+incidental prices, and Boss and Elite shared one class (both 30); (2) the
+`fire_still` tap-move was a fixed 2-frame walk / 2-frame stop cycle that never
+looked at weapon cooldowns. v2.8.0 adds a coverage layer and live cooldown
+sync:
+
+- **Coverage value table** (`--arb-cov`): Boss = class 1 **50**, Elite =
+  class 4 **30**, spawner egg 40, cursed/evolved 18 (all x `--arb-bounty`).
+  Rewards are tagged at tuple index 6 and valued as `max(raw, table)`: normal
+  crate **20**, legendary crate **34**, evolution consumable **20**, loot alien
+  **12**, tree **7**. Healing fruit keeps its raw food value; poisoned fruit,
+  revive zones and gold are intentionally left out. crates/evo/loot tags still
+  follow `--arb-boxes` / `--arb-evo` / `--arb-bounty`, and `opp=0` keeps the
+  exact v2.6.1 tuples.
+- **Live attack CD sync** (`--arb-tapcd`): world_view exposes
+  `fire_wait_frames` (min live `_current_cooldown` over current weapons) and
+  the movement behaviour stops exactly ONE frame when a weapon is ready --
+  the game fires every ready weapon on the first zero-movement frame with the
+  +50% standing bonus -- instead of the fixed 2+2 cycle. No weapons / hop /
+  pin / escaping fall back to the old cycle. Travel speed and DPS should both
+  improve; the stutter threat gate is unchanged.
+- **Killability estimate (opt-in)**: `--arb-dpsref=2` uses
+  `weapon.current_stats` (attack speed / %damage / multishot / range applied)
+  instead of the legacy `weapon.stats`. Default stays 1 because there is no
+  real-game A/B yet; `0` = static reference.
+
+`--arb-cov=0` restores the exact v2.7.0 values/class semantics (Boss and Elite
+both class 1 = 30, no reward tags) and `--arb-tapcd=0` restores the v2.7.0
+fixed 2+2 tap, so the exact v2.7.0 control arm is
+`--arb-cov=0 --arb-tapcd=0`; the exact v2.6.1 arm is
+`--arb-opp=0 --arb-cov=0 --arb-tapcd=0` (tapcd is a movement-layer switch, so
+it matters even with opp=0). The exact v2.4.0 control arm is now **all 15
+switches at 0** (the 13 from 2.7.0 plus `--arb-cov=0 --arb-tapcd=0`):
+
+```
+--arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0
+--arb-space=0 --arb-bounty=0 --arb-boxes=0
+--arb-roomtrack=0 --arb-windup=0 --arb-hitbox=0 --arb-opp=0 --arb-agg=0
+--arb-cov=0 --arb-tapcd=0
+```
+
+Offline evidence: `docs/TECHNICAL.md` §5.11 -- self-test 470/0 plus an
+independent falsifier 2476/0, gate 32/0 including the new tagged legendary-crate
+G1 scenario (1.65 s pickup vs 0 for every untagged/cov=0 arm), Lead probes
+32/32 (world_view) + 26/26 (arbiter), and 14/14 closed-loop scenarios
+row-identical to v2.7.0. Live A/B still pending.
 
 ## Install (Steam)
 
@@ -245,8 +296,10 @@ Non-Steam builds (GOG/Epic): copy the zip into `<Brotato>/mods/`.
 
 `--arb-every=2` (decide every other tick, lower CPU), `--arb-every=0` (adaptive),
 `--arb-profile=auto|table|merge` (profile source), `--arb-charprofile=0` (disable all
-character logic). Knob names are in
-`steering/arbiter.gd` → `apply_overrides()`.
+character logic). v2.8.0: `--arb-cov=0` (revert the coverage values/tags to v2.7.0),
+`--arb-tapcd=0` (revert the live-CD tap to the fixed 2+2 cycle), `--arb-dpsref=2`
+(opt-in `current_stats` killability estimate). Knob names are in
+`steering/arbiter.gd` / `steering/world_view.gd` → `apply_overrides()`.
 
 ## Credits / license
 

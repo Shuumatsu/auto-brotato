@@ -11,6 +11,14 @@ const TAP_MOVE = 2               # frames of travel per tap cycle (4 -> 2: half 
                                  # travel per volley -- the aggressive stutter; net
                                  # speed 50% instead of 67%, fire uptime up)
 const TAP_STOP = 2               # frames of stand-and-volley per cycle (0 disables)
+# v2.8.0: fire_still CD-synced tap (--arb-tapcd). The game fires every weapon
+# whose `_current_cooldown <= 0` on the FIRST frame movement input is exactly
+# zero, and the +50%/+50% standing stats apply the same frame, so ONE stop
+# frame per ready volley is enough. world_view publishes `fire_wait_frames`
+# (min live cooldown over the current weapons); stop when it is this low,
+# otherwise keep moving at full speed. The old fixed TAP_MOVE/TAP_STOP cycle
+# remains the fallback for hops, unknown loadouts and --arb-tapcd=0.
+const TAP_CD_LEAD = 1.0          # frames-until-ready that makes a stop worth it
 const TAP_SAFE_GAP = 35.0        # only tap while standing scores within this of the
                                  # chosen move; beyond it the move is a dodge.
                                  # 25 -> 35: keep stuttering under moderate threat
@@ -276,9 +284,31 @@ func _arbiter_move(player)->Vector2:
 			and (_arbiter.last_hop \
 				or (_world.profile.get("fire_still", false) \
 					and _arbiter.last_stutter_gap < TAP_SAFE_GAP)):
-		_tap_phase = (_tap_phase + 1) % (TAP_MOVE + TAP_STOP)
-		if _tap_phase < TAP_STOP:
-			return Vector2.ZERO    # let the volley off; heading stats keep the tap
+		# v2.8.0: CD-synced tap (--arb-tapcd; =0 is the exact v2.7.0 fixed
+		# cycle below). The fixed cycle keeps stopping on its own schedule even
+		# when every weapon is cooling (wasted frames) and keeps MOVING when a
+		# shot becomes ready mid-cycle (late shot). The CD-synced version stops
+		# exactly one frame when world_view reports a weapon ready (cooldown
+		# <= TAP_CD_LEAD frames), so the game fires it on that first
+		# zero-movement frame with the standing bonuses, then resumes moving.
+		# Hops keep the fixed duty cycle: they execute the arbiter's half-speed
+		# step, not volley timing. Unknown loadouts (fire_wait_frames < 0) also
+		# fall back to the fixed cycle.
+		if not _arbiter.last_hop and _world.tap_cd != 0.0:
+			var fw = float(_world.fire_wait_frames)
+			if fw < 0.0:
+				_tap_phase = (_tap_phase + 1) % (TAP_MOVE + TAP_STOP)
+				if _tap_phase < TAP_STOP:
+					return Vector2.ZERO
+			elif fw <= TAP_CD_LEAD:
+				_tap_phase = 0
+				return Vector2.ZERO    # a volley is ready: fire this frame
+			else:
+				_tap_phase = TAP_STOP  # everything cooling: keep moving
+		else:
+			_tap_phase = (_tap_phase + 1) % (TAP_MOVE + TAP_STOP)
+			if _tap_phase < TAP_STOP:
+				return Vector2.ZERO    # let the volley off; old fixed cycle
 	else:
 		_tap_phase = TAP_STOP    # re-enter cycles on the moving side
 

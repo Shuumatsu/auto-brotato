@@ -599,6 +599,36 @@ const OPP_GOAL_SCALE_MAX = 2.0    # reward pull multiplier cap: clamp(value/9, 1
 const OPP_HOLD = 90.0             # px: a stored special target may move this far
 const OPP_RISK_TAPER = 60.0       # px beyond the hit radius where route risk fades out
 
+# -- v2.8.0: high-value coverage (--arb-cov) ------------------------------
+# v2.7 coverage had two holes the player's "should cover ALL high-value
+# targets" report points at:
+#   (1) the monster table lumped Boss and Elite into one class/value, and
+#   (2) produces (item crates, evolution items, loot aliens, trees) still
+#       entered the unified planner at their old incidental prices (5/10/6-9/
+#       3), which are small next to a body's 10-40 contact price -- so the
+#       "valuable thing" the player wanted chased was still usually vetoed.
+# v2.8 gives every high-value class an explicit opportunity value (below) and
+# lets world_view tag identifiable reward classes; `--arb-cov=0` restores the
+# exact v2.7.0 tables/usages. Values are HP-equivalent (same unit as threats):
+# they answer "what is this objective worth in contact damage budget", before
+# the route-risk gate.
+const COV_ENABLE = 1.0            # --arb-cov
+const OPP_VALUE_BOSS = 50.0       # class 1 (Boss, is_elite=false)
+const OPP_VALUE_ELITE = 30.0      # class 4 (Elite, is_elite=true; DLC elites too)
+const OPP_VALUE_EGG = 40.0        # class 2 (spawner egg)
+const OPP_VALUE_DLC = 18.0        # class 3 (cursed / evolved body)
+const OPP_VALUE_V27_CLASS1 = 30.0 # cov=0: exact v2.7.0 (Boss+Elite share class 1)
+const OPP_VALUE_CRATE = 20.0      # reward tag 1: one item choice
+const OPP_VALUE_CRATE_LEGENDARY = 34.0  # reward tag 2: one legendary item choice
+const OPP_VALUE_EVO = 20.0        # reward tag 3: DLC evolution progression item
+const OPP_VALUE_LOOT = 12.0       # reward tag 4: fleeing loot alien
+const OPP_VALUE_TREE = 7.0        # reward tag 5: living tree (consumable+material)
+const OPP_TAG_CRATE = 1           # world_view reward[6] tags (mirror)
+const OPP_TAG_LEGENDARY = 2
+const OPP_TAG_EVO = 3
+const OPP_TAG_LOOT = 4
+const OPP_TAG_TREE = 5
+
 # -- v2.3.0: hit-adaptive alert --
 # A build that just took a big hit should behave more cautiously for a moment.
 # Online, cheap, and trivially switchable: compare hp_ratio with the previous
@@ -765,6 +795,7 @@ var last_goal_value = 0.0
 # called (the legacy goal/bounty update path runs instead).
 var opp_enable = OPP_ENABLE
 var opp_agg = OPP_AGG
+var cov_enable = COV_ENABLE      # --arb-cov: v2.8 high-value coverage table
 var _opp_on = false
 var _opp_kind = ""               # "target" | "reward"
 var _opp_value = 0.0
@@ -1003,6 +1034,9 @@ func apply_overrides(d: Dictionary) -> void:
 	# agg is the risk dial (0..2) and only matters while opp is on.
 	if d.has("opp"): opp_enable = float(d["opp"])
 	if d.has("agg"): opp_agg = clamp(float(d["agg"]), 0.0, 2.0)
+	# v2.8.0: cov=0 restores the exact v2.7.0 high-value tables (Boss/Elite
+	# share class 1/value 30; produces priced only by their raw reward value).
+	if d.has("cov"): cov_enable = float(d["cov"])
 	if not d.empty():
 		print("ARBITER weights: proj=%.2f contact=%.2f dash=%.2f aoe=%.2f latent=%.2f room=%.2f roomcap=%.0f wall=%.2f enclose=%.2f dps=%.2f pickup=%.2f hyst=%.2f lethality=%.2f horizon=%.2f pin=%.2f pinthreat=%.2f predict=%.2f predsecs=%.2f tangent=%.2f swerve=%.2f anchor=%.2f" % [
 			w_proj, w_contact, w_dash, w_aoe, w_latent, w_room, room_cap, w_wall,
@@ -1016,6 +1050,7 @@ func apply_overrides(d: Dictionary) -> void:
 		print("ARBITER v2.6.0: bounty=%.2f space=%.2f" % [bounty_enable, w_space])
 		print("ARBITER v2.6.1: roomtrack=%.2f" % [room_track])
 		print("ARBITER v2.7.0: opp=%.2f agg=%.2f" % [opp_enable, opp_agg])
+		print("ARBITER v2.8.0: cov=%.2f" % [cov_enable])
 
 
 # Returns the chosen unit direction, or ZERO to stand still.
@@ -2079,14 +2114,46 @@ func _opp_hp_floor() -> float:
 # Explicit value table for the special-target classes (no _kill_value reuse:
 # a 1000 HP boss reads almost zero killability and would lose to a trash mob).
 # --arb-bounty still scales it, so bounty=0 disables special candidates.
+# v2.8.0 (--arb-cov): Boss 50 vs Elite 30 split (world_view class 4 for elites);
+# cov=0 keeps the exact v2.7.0 table (class 1 = 30 for both, no class 4).
 func _opp_special_value(special_class: int) -> float:
-	if special_class == 1:
-		return 30.0     # boss / elite
 	if special_class == 2:
-		return 40.0     # spawner egg: killing it stops all future spawns
+		return OPP_VALUE_EGG      # spawner egg: killing it stops all future spawns
 	if special_class == 3:
-		return 18.0     # cursed / evolved body (DLC payoff)
+		return OPP_VALUE_DLC      # cursed / evolved body (DLC payoff)
+	if cov_enable == 0.0:
+		return OPP_VALUE_V27_CLASS1 if special_class == 1 else 0.0
+	if special_class == 1:
+		return OPP_VALUE_BOSS
+	if special_class == 4:
+		return OPP_VALUE_ELITE
 	return 0.0
+
+
+# v2.8.0 (--arb-cov): opportunity value of a reward. world_view tags the
+# high-value produce classes at reward[6]; the explicit table replaces the
+# legacy incidental price (a crate was 5, an evolution item 6-9, a tree 3 --
+# all below a single body's 10-40 contact price, so the unified planner could
+# almost never justify the detour). Raw r[1] is kept as a floor, so a
+# situationally boosted reward (hurt fruit, wave-end evolution item) still
+# wins. cov=0 returns the exact v2.7.0 raw value.
+func _opp_reward_value(r: Array) -> float:
+	var raw = float(r[1])
+	if cov_enable == 0.0 or r.size() <= 6:
+		return raw
+	var tag = int(round(float(r[6])))
+	var table = 0.0
+	if tag == OPP_TAG_CRATE:
+		table = OPP_VALUE_CRATE
+	elif tag == OPP_TAG_LEGENDARY:
+		table = OPP_VALUE_CRATE_LEGENDARY
+	elif tag == OPP_TAG_EVO:
+		table = OPP_VALUE_EVO
+	elif tag == OPP_TAG_LOOT:
+		table = OPP_VALUE_LOOT
+	elif tag == OPP_TAG_TREE:
+		table = OPP_VALUE_TREE
+	return max(raw, table)
 
 
 # Estimated HP damage of walking the straight route p0 -> dest through the
@@ -2234,7 +2301,7 @@ func _update_opportunity(p0: Vector2, speed: float, body_radius: float,
 			return _opp_release()          # arrived: the game collects this/next frame
 		if _hp_ratio < _opp_hp_floor() * OPP_ABORT_HP_FRAC:
 			return _opp_release()
-		_goal_value = float(r[1])
+		_goal_value = _opp_reward_value(r)
 		_goal_frac = clamp(_goal_value / 9.0, 0.5, 1.6)
 		_opp_goal_scale = clamp(_goal_value / 9.0, 1.0, OPP_GOAL_SCALE_MAX)
 		_opp_on = true
@@ -2278,7 +2345,7 @@ func _update_opportunity(p0: Vector2, speed: float, body_radius: float,
 		for r in rewards:
 			if r.size() < 2:
 				continue
-			var rv = float(r[1])
+			var rv = _opp_reward_value(r)
 			if rv < GOAL_MIN_VALUE or _opp_reward_held(r):
 				continue
 			var aim = _opp_aim_point(r, p0, speed)

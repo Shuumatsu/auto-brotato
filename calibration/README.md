@@ -211,31 +211,36 @@ python3 calibration/run_pilot.py --repeats 2 \
 4. 注入目标是别人的工坊 item：`cleanup_test_mods()` 现在也会删掉注入进去的 `AutoBattler-*.zip`，
    恢复时把原 item 内容放回。
 
-## v2.5.0 / v2.7.0 规划层 A/B（真机，待跑）
+## v2.8.0 高价值覆盖 / 实时 CD 同步 A/B（真机，待跑）
 
-设计/根因：v2.5 = `_research/planning-v250-design.md`，v2.7 = `_research/planning-v270-design.md`；
-离线门禁：`_research/planning-v250/gate/`（v2.7 → 27/27 PASS）；真机 runbook：
-`_research/planning-v250/bench.md`。
+设计/根因：v2.8 = `_research/planning-v280-design.md`（v2.7 = `_research/planning-v270-design.md`，
+v2.5 = `_research/planning-v250-design.md`）；离线门禁：`_research/planning-v250/gate/`
+（v2.7 → 27/27 PASS；v2.8 → 32/32 PASS 含新增 `G1_legendary_crate`，selftest 470/0）；真机
+runbook：`_research/planning-v250/bench.md`。
 
-- 候选：`calibration/candidates_v250.json`（v2.7.0 起）：
-  - `control` = **13 个新开关全 0** = v2.4.0 精确行为（v2.5 5 + v2.6 3 + v2.6.1 3 + v2.7 2；
-    `agg` 在 `opp=0` 下不生效，写 0 只为完整列出）；
-  - `planning` = v2.7 出厂默认（空 overrides）；
-  - 归因臂：`no_opp`（`opp=0` = 精确 v2.6.1）、`agg0` / `agg2`（`--arb-agg` 风险档 0/2）、
-    `no_roomtrack` / `no_windup` / `no_hitbox`（v2.6.1 三个接触修复）。
+- 候选：`calibration/candidates_v250.json`（v2.8.0 起）：
+  - `control` = **15 个新开关全 0** = v2.4.0 精确行为（v2.5 5 + v2.6 3 + v2.6.1 3 + v2.7 2 +
+    v2.8 2；`agg`/`cov` 在 `opp=0` 下不生效，`tapcd` 是 movement 层开关，写 0 保证契约完整）；
+  - `planning` = v2.8 出厂默认（空 overrides）；
+  - `v27` = `{cov:0, tapcd:0}` = 精确 v2.7.0；归因臂 `no_cov`（覆盖层关）、`no_tapcd`
+    （固定 2 走/2 停）、`no_opp`（`opp=0` = v2.6.1 机会层）、`agg0`/`agg2`（风险档 0/2）、
+    `no_roomtrack`/`no_windup`/`no_hitbox`（v2.6.1 三个接触修复）。
+  - `--arb-dpsref=2` 是 opt-in 的 killability 估算候选，**不在**这批臂里（默认 1）；若要评估，
+    单独加 `{dpsref:2}` 候选做定向对照。
 - 场景：`calibration/scenarios_v250.json`（D6 wave6 压力组 + D3 wave7 evolution_mult=20 物品组，
-  v2.7 沿用）。
+  v2.8 沿用）。
 - 命令：
   ```bash
   python3 calibration/run_pilot.py --repeats 3 \
-    --build dist/AutoBattler-2.7.0-fork.zip \
+    --build dist/AutoBattler-2.8.0-fork.zip \
     --scenarios calibration/scenarios_v250.json \
     --candidates calibration/candidates_v250.json \
-    --out calibration/results_v270.csv
+    --out calibration/results_v280.csv
   ```
-- 指标：压力组看存活/清波/min_hp（`planning` vs `no_opp` 应无显著退化；`agg0`/`agg2` 看风险档
-  差异）；物品组看 `evo_picked` / `goals=` / `goal_d=`。注意 harness 现有遥测没有机会层字段
-  —— 机会层是否真的启用看启动日志 `ARBITER v2.7.0: opp=... agg=...`，行为效果用上述指标间接判断
-  （若需要逐秒 `opp=` 遥测，要先改 `_research/harness-mod/`，不随 Mod 发布）。
-- 小样本：8 臂 × 4 场景 × 3 repeats = 96 局，整轮较长；建议先跑 `planning` vs `no_opp` 两臂
-  （24 局，约 15–18 分钟）看总体，再对 `agg0`/`agg2` 做定向对比。
+- 指标：压力组看存活/清波/min_hp（`planning` vs `v27` / `no_cov` / `no_tapcd` 判断覆盖层与
+  CD 同步是否退化）；物品组看 `evo_picked` / `goals=` / `goal_d=`，覆盖层生效时高价值物品
+  拾取应更积极。注意 harness 现有遥测没有机会层/覆盖层字段——是否启用看启动日志
+  `ARBITER v2.8.0: opp=... agg=... cov=... tapcd=...`，行为效果用上述指标间接判断
+  （若需要逐秒 tag/opp 遥测，要先改 `_research/harness-mod/`，不随 Mod 发布）。
+- 小样本：11 臂 × 4 场景 × 3 repeats = 132 局，整轮较长；建议先跑 `planning` vs `v27`（24 局，
+  约 15–18 分钟）看总体，再对 `no_cov`/`no_tapcd`/`agg0`/`agg2` 做定向对比。

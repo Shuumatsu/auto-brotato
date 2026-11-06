@@ -47,8 +47,8 @@ Brotato 的玩法决定了自动操作其实**只需要接管移动**：武器�
 > **当前状态（2026-11 实测后）**：本 Mod 的 2.6.1 版本已安装到你的游戏里：
 > `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.6.1-fork.zip`
 > （借用了 Mod Options 的工坊 item 目录）。测试用的 harness 已删除，其它 8 个 Mod 已恢复，
-> 测试前的 run 存档已还原。启动游戏即可生效；卸载/重装用 `./install.sh`（2.7.0 用同一方式：
-> `./build.sh && ./install.sh` 会按 manifest 版本覆盖为 `AutoBattler-2.7.0-fork.zip`）。
+> 测试前的 run 存档已还原。启动游戏即可生效；卸载/重装用 `./install.sh`（2.8.0 用同一方式：
+> `./build.sh && ./install.sh` 会按 manifest 版本覆盖为 `AutoBattler-2.8.0-fork.zip`）。
 
 ### 方法 A：本地注入（最快，可逆；脚本自动）★ 先用这个试
 
@@ -60,7 +60,7 @@ cd auto-brotato
 脚本会：
 1. 自动定位 Brotato 安装目录；
 2. 找到你已安装的创意工坊 mod 目录（默认挑第一个，例如 Mod Options 的 `3598984651`）；
-3. 把构建好的 `dist/AutoBattler-2.7.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
+3. 把构建好的 `dist/AutoBattler-2.8.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
 
 然后**从 Steam 启动 Brotato**即可。
 
@@ -79,7 +79,7 @@ cd auto-brotato
 
 1. 启动 Steam（需登录拥有 Brotato 的账号）；
 2. 打开 `<Brotato>/GodotWorkshopUtility.app`；
-3. 选择 `dist/AutoBattler-2.7.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
+3. 选择 `dist/AutoBattler-2.8.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
    （可见性选"私有/不公开"也可以，自己订阅即可）；
 4. 上传后在 Steam 创意工坊订阅该 item，正常启动游戏。
 
@@ -146,22 +146,39 @@ cd auto-brotato
   - `--arb-space=0`：关闭 open-floor 势场（380px 内向开阔地轻微收，防止被逐步挤到边缘）。
   - `--arb-bounty=0`：关闭特殊目标赏金接近（精英/Boss、生成器蛋、诅咒/进化怪）与掉落怪价值提升。
   - `--arb-boxes=0`：物品箱回到 2.5.0 的“只按回血定价”。
-  - （v2.6.1/v2.7 之后的完整 v2.4.0 控制臂是 **13 个开关全 0**，见下方 v2.7.0 条目。）
+  - （v2.6.1+v2.7 时代的完整 v2.4.0 控制臂是 **13 个开关全 0**，见下方 v2.7.0 条目；
+    v2.8.0 起再加 `--arb-cov=0 --arb-tapcd=0`，共 **15 个**，见 v2.8.0 条目。）
 - v2.6.1 接触/碰撞开关（默认全开，=0 为精确回退）：
   - `--arb-roomtrack=0`：拥挤项（`room`/`roomfar`）回到 2.6.0 的“冻结速度直线投影”。
   - `--arb-windup=0`：蓄力定身怪的身体不再补一次性接触价。
   - `--arb-hitbox=0`：接触距离回到只用 Hurtbox 半径（非圆形 -> fallback 20px）。
 - v2.7.0 统一机会层开关（默认开）：
-  - `--arb-opp=<0|1>`（默认 `1`）：统一机会规划总开关。`0` = **精确 v2.6.1 行为**：
+  - `--arb-opp=<0|1>`（默认 `1`）：统一机会规划总开关。`0` = **精确 v2.6.1 机会层**：
     arbiter 走旧 `_update_goal`/`_update_bounty`，world_view 回到旧 target 可见半径、
     旧 reward 元组与旧 special tag 条件。
   - `--arb-agg=<0|1|2>`（默认 `1`，读取时 clamp 0–2）：风险接受档位 —— `0` 保守
     （≈旧二元安全门的严格侧）、`1` 默认、`2` 激进；同时决定特殊目标的可见半径
     （900/1400/1600px）与 HP 地板（0.55/0.35/0.20）。只在 `--arb-opp=1` 时有意义。
-  - **精确 v2.4.0 控制臂（13 个开关全 0）**：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0
+  - v2.7 当时的 v2.4.0 控制臂（13 个开关全 0）：`--arb-breakout=0 --arb-goal=0
+    --arb-pursuit=0 --arb-walk=0 --arb-waveend=0 --arb-space=0 --arb-bounty=0
+    --arb-boxes=0 --arb-roomtrack=0 --arb-windup=0 --arb-hitbox=0 --arb-opp=0 --arb-agg=0`
+    （v2.5 5 个 + v2.6 3 个 + v2.6.1 3 个 + v2.7 2 个；v2.8 起完整控制臂还要加 cov/tapcd）。
+- v2.8.0 高价值覆盖 / 实时 tap 开关（默认开）：
+  - `--arb-cov=<0|1>`（默认 `1`）：高价值覆盖层。Boss/精英拆 class（class 1 = 50 /
+    class 4 = 30，× `--arb-bounty`），reward 打 tag 并按 `max(原价值, 表值)` 定价
+    （物品箱 20 / 传奇箱 34 / 进化消耗品 20 / 掉落怪 12 / 树 7）；`0` = **精确 v2.7.0**
+    语义（无 tag、Boss/精英同 class 1 = 30、掉落怪回到 reward 8）。
+  - `--arb-tapcd=<0|1>`（默认 `1`）：fire_still 角色的 tap-move 改为“武器 ready 才停 1 帧”
+    的实时 CD 同步；`0` = **精确 v2.7.0** 固定 2 帧走/2 帧停。
+  - `--arb-dpsref=<0|1|2>`（默认 `1`）：`2` = 用 `weapon.current_stats` 估算 killability
+    （实验性，需真机 A/B，默认不开）；`1` = 现状 `weapon.stats`；`0` = 静态 `KILL_HP_REF`。
+  - **精确 v2.4.0 控制臂（15 个开关全 0）**：`--arb-breakout=0 --arb-goal=0 --arb-pursuit=0
     --arb-walk=0 --arb-waveend=0 --arb-space=0 --arb-bounty=0 --arb-boxes=0
-    --arb-roomtrack=0 --arb-windup=0 --arb-hitbox=0 --arb-opp=0 --arb-agg=0`
-    （v2.5 5 个 + v2.6 3 个 + v2.6.1 3 个 + v2.7 2 个；`agg` 在 `opp=0` 下不参与计算）。
+    --arb-roomtrack=0 --arb-windup=0 --arb-hitbox=0 --arb-opp=0 --arb-agg=0
+    --arb-cov=0 --arb-tapcd=0`（v2.5 5 + v2.6 3 + v2.6.1 3 + v2.7 2 + v2.8 2；
+    `cov` 在 `opp=0` 下不生效；`tapcd` 在 movement 层，回退老版本时需一并置 0）。
+  - **精确 v2.7.0**：`--arb-cov=0 --arb-tapcd=0`（其余默认）。**精确 v2.6.1**：
+    `--arb-opp=0 --arb-cov=0 --arb-tapcd=0`（`cov` 在 `opp=0` 下不生效，写 0 只为契约完整）。
 - 若发现角色不动：先看 HUD 是否 `ON`；再确认 mod 是否被加载
   （`~/Library/Application Support/Brotato/logs/modloader.log` 里应有 `Pasha-AutoBattler`）。
 
@@ -588,8 +605,9 @@ killability 折减（目标价值下降）；伤害/速度变大 → 接触威�
     `WORLDVIEW opp_enable=... / opp_agg=...`（`--arb-opp=0` 回退时也打印，便于 A/B 核对）。
 - **开关语义**：`--arb-opp=0` 走旧 `_update_goal` / `_update_bounty`，一行不差；此时
   `--arb-agg` 不生效。`opp=0` 时 `bounty=0`/`goal=0` 的旧语义与 v2.6.1 完全一致。
-- 控制臂：**13 个开关全 0 = v2.4.0 精确行为**（v2.5 5 + v2.6 3 + v2.6.1 3 + v2.7 2；
-  完整列表见 §三）。`--arb-agg=0` 在 `--arb-opp=0` 下不参与任何计算。
+- 控制臂：**v2.7 当时的 13 个开关全 0 = v2.4.0 精确行为**（v2.5 5 + v2.6 3 + v2.6.1 3 +
+  v2.7 2；完整列表见 §三）。`--arb-agg=0` 在 `--arb-opp=0` 下不参与任何计算。
+  v2.8.0 起完整控制臂为 **15 个开关**（再加 `--arb-cov=0 --arb-tapcd=0`，见 §五点十一）。
 
 > 本轮源码冻结值（供复现）：`arbiter.gd` sha256 `402c37e1…`、`world_view.gd` sha256 `70d56707…`；
 > v2.6.1 基线 = commit `dcb6e39`。
@@ -646,13 +664,182 @@ item_far_safe/item_far_1slow 行级一致；只出现三处微差：`item_far_ri
 - 特殊目标可见半径只对 special 类放宽；普通敌人仍只在旧半径内可见（远处普通怪不追符合预期）。
 - 掉落怪速度字段在世界坐标下测量；被墙卡住/位移类机制没有特殊处理（真机待验证）。
 - **真机 A/B 仍未跑**（需要用户同意后启动 Steam）：候选/场景已更新为
-  `calibration/candidates_v250.json` 的 13 开关控制臂 + v2.7 归因臂
-  （`no_opp` = 精确 v2.6.1、`agg0`/`agg2` = 风险档），runbook 见
+  `calibration/candidates_v250.json` 的 v2.7 当时 13 开关控制臂 + v2.7 归因臂
+  （`no_opp` = 精确 v2.6.1、`agg0`/`agg2` = 风险档；v2.8.0 起为 15 开关），runbook 见
   `_research/planning-v250/bench.md`。因此以上结论均按“离线合成验收通过 + 无回归信号”理解。
 
 ---
 
+## 五点十一、v2.8.0 高价值目标全覆盖 + 实时攻击 CD 同步（第五轮试玩反馈）
+
+第五轮试玩反馈集中在两件事：**(1) 高价值目标覆盖不全** —— v2.7 只给特殊*怪物*建了显式价值表，
+*产出*（物品箱/传奇箱/进化消耗品/树/掉落怪）仍按旧“顺路价”进入机会层，而且 Boss 和精英
+共用一个 class（都是 30）；**(2) fire_still 角色的走位/输出节奏** —— tap-move 固定“走 2 帧 /
+停 2 帧”，完全不看武器冷却。v2.8 分别用**覆盖层**和**实时攻击 CD 同步**解决。
+
+### 1. 覆盖矩阵（1.2.0.1 + DLC 全量审计，逐类有处理）
+
+**怪物（target / special class，价值 × `--arb-bounty`）**
+
+| 类别 | 检测 | v2.8 价值 | 相对 v2.7 |
+|---|---|---|---|
+| Boss（`Boss` 且 `is_elite=false`） | `unit is Boss` + `unit.is_elite` | class 1 = **50** | v2.7 与精英同为 class 1 = 30 |
+| 精英（`Boss` 且 `is_elite=true`，含 meca/mutant elite） | 同上 | class 4 = **30** | v2.7 无 class 4 |
+| 生成器蛋（`SpawningAttackBehavior`，含 DLC 变体） | `_is_egg` | class 2 = 40 | 不变 |
+| 诅咒怪（DLC1 描边） | `_enemy_is_cursed` | class 3 = 18 | 不变 |
+| 机械/异变进化怪（DLC2） | `_enemy_is_evolved` | class 3 = 18 | 不变 |
+| loot alien | `is_loot`（reward 路径） | reward tag 4 = **12** | v2.7 是 reward 8 |
+| charmed/ally | 已跳过 | — | 不参与 |
+| 普通怪 / horde | 普通 target 路径 | 不特殊处理（正确） | — |
+
+`cov=0` 时 class 1 保持 v2.7 语义（Boss/精英同为 class 1、价值 30），world_view 不发 class 4；
+`opp=0` 时按 v2.6.1 规则（class 1）且 reward 元组逐字节不变。
+
+**产出（reward tag，索引 6；只有 `opp=1 && cov=1` 才打 tag）**
+
+| 类别 | 检测 | tag | v2.8 价值（`max(原价值, 表值)`） |
+|---|---|---|---|
+| 普通物品箱 | `_box_value = BOX_VALUE` 且 `boxes_mult != 0` | 1 | **20** |
+| 传奇物品箱 | `_box_value = LEGENDARY_BOX_VALUE` 且 `boxes_mult != 0` | 2 | **34** |
+| 进化消耗品（4 种） | `_consumable_kind != ""` 且 `evo_mult != 0` | 3 | **20** |
+| loot alien | `is_loot` 且 `bounty_tag != 0` | 4 | **12**（原 reward 8） |
+| 树 | `tree_value > 0` | 5 | **7** |
+| 治疗类果子 | food 路径 | 不打 tag | 沿用 raw food value（受伤时最高 30） |
+| 毒果 | 非食物 | 不打 tag | 0（继续避免） |
+| 复活圈 / scapegoat | held reward | 不打 tag | 旧 held 语义，不进机会层（有意） |
+| 金币 / 材料 | 每颗价值 <4 | 不打 tag | pickup 梯度 / draw / sweep 处理 |
+
+`--arb-boxes=0` / `--arb-evo=0` / `--arb-bounty=0` 仍会关掉对应类的旧定价，v2.8 的 tag
+跟随这些旧开关（不会出现“关了箱子还在追箱子”）。
+
+### 2. 实现
+
+- **world_view（覆盖 + tag + CD 测量）**：
+  - Boss/精英分类拆成 class 1 / class 4（`cov_enable && opp_enable` 时才发 class 4）；
+    `cov=0` 或 `opp=0` 时回退 v2.6.1/v2.7.0 的 class 1-for-both。
+  - reward tag 打包 helper：保留旧元组前段语义（尤其 r[2] 缺失 = attracted），补齐到索引 6：
+    - 2 元组 `[pos, v]` → `[pos, v, true, 0, 0, 0, tag]`（保持 attracted 语义）；
+    - 3 元组 tree `[pos, v, false]` → pad 0.0 → tag 6；
+    - 4 元组 held `[pos, v, false, rim]`：**不 tag**（复活圈/held 不进机会层）；
+    - 5 元组 walk-on evo `[pos, v, false, rim, 1.0]` → pad 0.0 at 5 → tag 6；
+    - loot 6 元组 `[pos, v, true, 0, 0, vel]` → 追加 tag 6（索引 5 的速度保持不变）。
+  - `fire_wait_frames`：`--arb-tapcd != 0` 时对 `player.current_weapons` 取
+    `_current_cooldown` 的最小值（帧）；无武器/不可读 → `-1`；movement behavior 读取。
+- **arbiter（价值表）**：
+  - special 表扩展：class 1 = 50、class 4 = 30、class 2 = 40、class 3 = 18（× `--arb-bounty`）。
+  - produce 表：tag 1 = 20、tag 2 = 34、tag 3 = 20、tag 4 = 12、tag 5 = 7；
+    `_opp_reward_value(r) = max(r[1], table[tag])`（仅 `cov=1` 且有 tag），`cov=0` 时 = `r[1]`。
+    acquisition 与维护都用该值；`_opp_aim_point` 仍读索引 5 的 Vector2 速度（tag 不影响瞄准）；
+    `_goal_value` / `_goal_frac` 用新值 → reward 拉力随价值缩放（天然更强）。
+  - `opp=0` 时完全走 v2.6.1 路径；`cov=0` 时与 v2.7.0 逐值一致（含奖励价值、class 语义）。
+- **movement behavior（CD 同步 tap）**：
+  - v2.7：固定 2 帧走 + 2 帧停的 `_tap_phase` duty cycle。
+  - v2.8（`tap_cd` 开）：`tap_ok` 条件不变（`fire_still` + `last_stutter_gap < 35` +
+    非 escaping + 非 hop）。若 `fire_wait_frames <= TAP_CD_LEAD(1)` → 返回 ZERO **停 1 帧**
+    （游戏在 movement==ZERO 的第一帧发射所有 ready 武器，站桩 +50% 加成同帧生效），
+    并把 `_tap_phase` 归 0；否则继续走（`_tap_phase = TAP_STOP`）。
+    hop 仍走旧 duty cycle；`fire_wait_frames < 0` 时回退旧固定循环（与 `tap_cd=0` 相同）。
+  - 语义：把“每 4 帧固定停 2 帧”换成“每次有武器 ready 才停 1 帧”；威胁门（stutter gap）
+    不变，所以逃跑/闪避不受影响。
+- **killability 修复（opt-in）**：`_refresh_kill_ref` 在 `--arb-dpsref=2` 时用
+  `w.current_stats`（含攻速/%伤害/多发/射程后的真实 weapon stats）估算
+  `damage × nproj × 60 / cooldown`；`0` = 静态 `KILL_HP_REF`，`1` = 现状 `w.stats`（默认）。
+  默认不动，避免没有真机证据的全局行为漂移。
+- **开关语义/控制臂**：
+  - `--arb-cov=0` = 精确 v2.7.0 价值/class 语义；`--arb-tapcd=0` = 精确 v2.7.0 固定 tap；
+    `--arb-dpsref=1` = 回退 killability 修复；`--arb-opp=0` 仍是 v2.6.1 机会层。
+  - **15 个开关全 0 = v2.4.0 精确行为**（列表见 §三）；**精确 v2.7.0 = `--arb-cov=0
+    --arb-tapcd=0`**；精确 v2.6.1 = `--arb-opp=0 --arb-cov=0 --arb-tapcd=0`。
+
+### 3. 离线验证（真实 `arbiter.gd` / `world_view.gd` / movement behavior，无游戏）
+
+| 判据 | v2.7.0（对照） | v2.8.0（默认） | 结果 |
+|---|---|---|---|
+| `check_gd.sh`（3 个真源文件；movement behavior 新加入解析门禁） | — | **CHECK PASSED（3 files）**，`--selftest` PASSED | 解析门禁 PASS |
+| `planner-selftest` | 355/0 | **470 checks / 0 fails**；独立 falsifier **2476 checks / 0 fails** | 含 67 条 v2.7.0 冻结对照 + 48 条覆盖值/class/tag/F1-default 断言 |
+| 离线门禁 `gate/run.sh` | 27/0 | **32 checks / 0 fails PASS**（新增 `G1_legendary_crate`） | v2.7 的 27 项全部不退化 |
+| Lead world_view 探针 | 20/20 | **32/32 PASS** | Boss class 1 / 精英 class 4；`cov=0` 两者 class 1；crate/legendary/evo/loot/tree tag 1–5 在 reward[6]；crate/legendary raw 5/10 保留；fruit 无 tag、poisoned 排除；`fire_wait_frames` 0/5/min/-1 且 `tapcd=0 → -1`；`dpsref` 1/2/0 → kill_ref 25.7/154.3/20；**`cov=0,tapcd=0`（精确 v2.7.0）的 targets/threats/rewards 与冻结 HEAD `e933740` 逐值一致**；`opp=0` 与冻结 v2.6.1 一致 |
+| Lead arbiter 探针 | 12/12 | **26/26 PASS** | class 值 50/40/18/30；produce 值 20/34/20/12/7；`cov=0` raw fallback 5/10/9/8/3；rich-world `choose()` **1.34×** |
+
+本轮冻结 SHA256：`arbiter.gd` `48d8f3d6…`（3047 行）、`world_view.gd` `39209fe7…`（3125 行）、
+`player_movement_behavior.gd` `cf931459…`（356 行）。
+
+**门禁新增 G1（高价值产出，v2.8）**：1 个静止身体 250px 挡路 + 带 tag 的传奇箱 800px ——
+默认臂 1.65s 拾取、`item_min` 26.6px、`opp_s` 1.65s；`legacy27`（cov=0）/ control /
+no-tag（raw 5）臂 0 拾取、`item_min` 530.0px、`opp_s` 0。回归：F1 target_min
+185.2→**185.6px** / reach 1.67s / opp 1.73s（agg0/control 仍 800px）；F2 default 与 control
+均 alive 25s / hp_min 94.0（default nearest 27.7px/contact 0.20s vs control 8.6px/0.23s）；
+E2b default+agg0 不承诺（路线风险 38.4 > cov=1 允许 17）；E2c default 承诺且
+`last_opp_value=50.0, risk=0.0`（Boss class-1 新价值生效），legacy 仍被 veto。
+
+#### 闭环 sim（`_research/planning-v250/sim/`，确定性 60Hz 合成世界）
+
+S1/S2/S3（真实武器射程 260px，进入 `max(weapon_range×0.9, 70) + 40 = 274px` 记一次 reach）：
+
+| 场景 | v2.7.0（`v27`） | v2.8.0（默认） |
+|---|---|---|
+| S1 class-1 special 800px / 1 个静止 dmg-6 身体 250px 挡路 | 1.77s 进入射程，min 224.4px | 1.77s，min 222.5px（class-1 价值 30→50） |
+| S2 class-2 special 800px / 2 个静止 dmg-3 身体 250/500px 挡路 | 1.78s，min 39.0px | 1.78s，min 39.0px |
+| S3 loot alien（v2.8 起 tag 4 → 12） | 2.8s 抓获（v2.7 忽略 tag；`v26` 11.3s = 4.04×） | 2.8s（row-identical；追击已受运动学限制，价值提升不显著但**不退化**） |
+| `opp_v34_tagged`（raw 10 + 传奇箱 tag 2，800px，1 个静止身体 250px） | 3.6s 拾取（raw 10 过不了风险门，只能靠 pickup 梯度蹭过去） | **2.9s 拾取**（tag 2 → 34 过风险门，**0.7s 更快**） |
+
+> 14 个既有闭环场景 no-regression：冻结 v2.7.0 的 `v27` 行与 pinned `e933740` **逐字段一致**；
+> v2.8 默认 `v28` 与 `v27` **逐行一致** —— 无 alive / hp_min / contact / edge / nearest /
+> item 退化。`opp_v34_plain`（无 tag、raw 34）两代都 2.6s，是上界参照。
+> 注：sim 只加载 arbiter；`tapcd`/`fire_wait_frames` 在 world_view/movement 层，sim 不可见，
+> 由 Lead 的 world_view 探针覆盖。
+
+### 4. 已知限制
+
+- 覆盖层只改“值多少钱/分类”，沿用 v2.7 的路线风险模型（直线 + 最近接近的粗估），
+  不是弹道级规划；每帧威胁项仍是最终兜底。
+- `--arb-tapcd` 依赖武器 `_current_cooldown` 可读；无武器/字段缺失时回退旧节拍。
+  多武器取 min cooldown（任一武器 ready 就停 1 帧）、多发/异形武器的实际收益真机未验证。
+- `--arb-dpsref=2` 只是“已实现候选”，**默认不开**：没有真机 A/B 证明整体更好；成长型
+  build 可能受益，而静态早期 build 可能过度自信。
+- 治疗果子保持 raw food 价值（不打 tag）；毒果/复活圈/金币**有意**不进机会层。
+- **真机 A/B 仍未跑**（覆盖层与 CD 同步的实际收益未知）：候选/场景见
+  `calibration/candidates_v250.json`（15 开关控制臂 + `v27`/`no_cov`/`no_tapcd` 归因臂），
+  runbook 见 `_research/planning-v250/bench.md`。
+
+---
+
 ## 六、验证状态（诚实说明）
+
+### v2.8.0 离线验收（2026-11-06，第五轮）
+
+- `_research/tools/check_gd.sh` → **CHECK PASSED（3 个真源文件：arbiter / world_view /
+  movement behavior）**，`--selftest` PASSED（movement behavior 新加入解析门禁）。
+- `_research/planner-selftest/run.sh` → **`RESULT checks=470 fails=0 PASS`**（v2.7 的 355 项
+  + 115 条新增：67 条 v2.7.0 冻结对照 + 48 条覆盖值/class/tag/F1-default 断言；phase-2 把
+  v2.7-era 的 F1 断言显式 pin `cov=0` 并补 2 条 v2.8-default 用例，live 从 468/1 → 470/0）；
+  独立 falsifier（seeded fuzz，与验收 fixture 分离）→ **`RESULT falsify checks=2476 fails=0
+  PASS`**（A/A2 各 240 帧逐位一致 + telemetry/agg 单调性/负对照）。测试先行：同一套跑冻结
+  v2.7.0 → `470 fails=24`，失败全部是 v2.8 覆盖断言。
+- `_research/planning-v250/gate/run.sh` → **`RESULT checks=32 fails=0 PASS`**：v2.7 的 27 项
+  全部不退化 + 新增 `G1_legendary_crate`（静止身体 250px 挡路 + tag 2 传奇箱 → default
+  1.65s 拾取、`item_min` 26.6px、`opp_s` 1.65s；`cov=0`/control/no-tag 臂 0 拾取、
+  `item_min` 530.0px、`opp_s` 0）。回归：F1 target_min **185.6px** / reach 1.67s / opp 1.73s
+  （agg0/control 800px）；F2 default 与 control 均 alive 25s / hp_min 94.0；E2b default+agg0
+  不承诺（风险 38.4 > cov=1 允许 17）；E2c `last_opp_value=50.0, risk=0.0`（cov=1 Boss
+  class-1=50）且 legacy 仍被 veto；A1 control 6.3s 死 / default 30s hp70；B1 1.63s；
+  B2 1.95s；C 3×1800 帧与 v2.4 reference 逐帧一致；D 性能 1.29×/1.14×。
+- **Lead 探针**：world_view **32/32 PASS**（Boss class 1 / 精英 class 4、`cov=0` 两者 class 1、
+  reward tag 1–5、crate/legendary raw 5/10 保留、fruit 无 tag、poisoned 排除、
+  `fire_wait_frames` 0/5/min/-1 且 `tapcd=0→-1`、dpsref 1/2/0 kill_ref 25.7/154.3/20、
+  `cov=0,tapcd=0` 的 targets/threats/rewards 与冻结 HEAD `e933740` 逐值一致、`opp=0` 与
+  冻结 v2.6.1 一致）；arbiter **26/26 PASS**（class 50/40/18/30、produce 20/34/20/12/7、
+  `cov=0` raw fallback 5/10/9/8/3（含 tag5 raw 3 不承诺）、rich-world `choose()` 1.34×）。
+- **闭环 sim**（真实 arbiter，确定性 60Hz）：14 个既有场景 `v28` vs `v27` **逐行一致**
+  （`v27` 与 pinned `e933740` 逐字段一致）= 无 alive/min_hp/contact/edge/nearest/item 退化；
+  S1 1.77s / min 222.5px（v2.7 224.4px）、S2 1.78s / min 39.0px、S3 loot 2.8s（与 v2.7 相同，
+  运动学限制）；新增 `opp_v34_tagged`（tag 2 → 34）3.6s→**2.9s** 拾取（0.7s 更快）。
+  sim 只加载 arbiter，`tapcd`/`fire_wait_frames` 由 Lead 的 world_view 探针覆盖。
+- 基线（v2.7.0，已验收，不变）：`planner-selftest` **355/0**、falsifier **1916/0**、门禁
+  **27/0**、Lead 探针 **12/12**（arbiter）+ **20/20**（world_view）。
+- 本轮冻结 SHA256（前三项）：`arbiter.gd` `48d8f3d6…`、`world_view.gd` `39209fe7…`、
+  `player_movement_behavior.gd` `cf931459…`。
+- 已知未覆盖：**真机 A/B**（覆盖层、`--arb-tapcd`、`--arb-dpsref=2` 的实际收益未知）。
 
 ### v2.7.0 离线验收（2026-11-06，第四轮）
 
@@ -853,9 +1040,9 @@ auto-brotato/
 ├── README.md                    # 项目主页（简短宣传）
 ├── docs/TECHNICAL.md            # 本文件（详细技术文档）
 ├── install.sh                   # 安装/卸载（Steam 工坊注入 / 非 Steam mods 目录）
-├── build.sh                     # 构建 dist/AutoBattler-2.7.0-fork.zip
+├── build.sh                     # 构建 dist/AutoBattler-2.8.0-fork.zip
 ├── dist/
-│   └── AutoBattler-2.7.0-fork.zip
+│   └── AutoBattler-2.8.0-fork.zip
 ├── mod/                         # Mod 源码（zip 内容）
 │   ├── LICENSE                  # 上游 BOTato MIT 许可
 │   ├── README-FORK.md           # 随 zip 分发的说明
@@ -870,7 +1057,8 @@ auto-brotato/
     ├── audit.md                 # BOTato 自动决策审计 + 瘦身方案
     ├── strategy-v230-design.md  # v2.3.0 设计/根因
     ├── planning-v250-design.md  # v2.5.0 设计/根因
-    ├── planning-v270-design.md  # v2.7.0 设计/根因（本轮）
+    ├── planning-v270-design.md  # v2.7.0 设计/根因
+    ├── planning-v280-design.md  # v2.8.0 设计/根因（本轮）
     ├── planning-v270/           # v2.7 world_view/arbiter 单帧探针
     ├── planning-v250/           # 闭环仿真 sim/ + 离线门禁 gate/
     ├── decompiled/              # 反编译源码（脚本部分）
