@@ -134,6 +134,41 @@ The exact v2.4.0 control arm is all seven switches at 0:
 world_view; the rest in the arbiter). Offline evidence: `docs/TECHNICAL.md`
 §5.8 and the 19-check gate in `_research/planning-v250/gate/`.
 
+## Contact-avoidance fix (2.6.1)
+
+Third play-test report: "sometimes, in relatively simple situations, the
+character bumps into a monster." Offline closed-loop reproduction (real contact
+geometry: enemy Hitbox + player Hurtbox) showed a base cost-model bug, present
+in the 2.4/2.6 control arms as well: with one dangerous chaser the bot settles
+into a stable orbit ON TOP of the body and takes a contact hit every 0.7 s
+until it dies (e.g. a 6-damage pursuer from 380 px: 17 hits, dead at 17.2 s).
+
+- **Crowding terms now track pursuers** (`--arb-roomtrack`): `room` /
+  `roomfar` projected a body with its froze velocity; a chaser closer than
+  speed*horizon was projected THROUGH and past the player, so running away
+  raised the computed crowding while orbiting lowered it. Contact bodies whose
+  projection would pass us now project as pursuers that follow and stop at
+  touching distance (same cap as the 2nd ply's pursuit forecast). Scoped to
+  bodies SLOWER than the player (flight can actually open the gap); faster
+  bodies keep the 2.6.0 projection. Only these two projections change:
+  enclosure / blast counting / planning keep the old ones, and distant bodies
+  are bit-identical.
+- **Winding-up dash bodies are priced** (`--arb-windup`): a winding-up charger
+  used to be represented only by its future lane (starting at launch), leaving
+  its frozen, damaging body free to walk over. A contact threat with
+  `T_END = launch` is added for the telegraph window.
+- **Contact reach is never under-estimated** (`--arb-hitbox`): the contact price
+  used the enemy Hurtbox radius while the game damages with the enemy Hitbox.
+  Taking the larger conservative reach fixes the elite/boss under-estimate and
+  the DLC non-circle (capsule) case. Plain trash keeps its exact old value.
+
+The exact pre-2.6.1 control arm is all three switches at 0
+(`--arb-roomtrack=0 --arb-windup=0 --arb-hitbox=0`); with the v2.5/v2.6
+switches it reproduces v2.4.0 frame-for-frame in the gate. Offline evidence:
+`docs/TECHNICAL.md` §5.9, `_research/planning-v250/gate/` (19/19 PASS),
+`_research/planner-selftest/` (294 checks PASS), and the closed-loop
+`_research/collision-bug/` suite.
+
 ## Install (Steam)
 
 The Steam build's ModLoader only loads zips from **subscribed Workshop item

@@ -526,6 +526,36 @@ const BOUNTY_DESIRE = 0.9        # desired range as a share of weapon range
 const BOUNTY_TICKS = 45          # frames an approach survives before re-acquisition
 const BOUNTY_HOLD = 60.0         # px: target moved this far -> re-acquire
 
+# -- v2.6.1: crowding projection must TRACK a pursuer, not overshoot it ----
+# Field report after 2.6.0: "sometimes in relatively simple situations the
+# character collides with monsters". Sparse-1v1 closed-loop reproduction: a
+# chaser damages us every 0.7 s while the bot orbits it, in the shipped build
+# AND in the 2.4/2.6 control arms -- a base cost-model bug, not a v2.5/2.6
+# regression. The threat term saturates once the body is inside its (inflated)
+# contact radius, so nothing in it rewards increasing the gap; the heading was
+# decided by the CROWDING terms instead. Those projected the body with its
+# FROZEN current velocity: a chaser closer than speed*HORIZON is projected
+# THROUGH and PAST the player, so running away *raised* the computed crowding
+# (the chaser is projected to be right where we are heading) while orbiting /
+# charging through *lowered* it -- the arbiter then sat in a stable orbit on
+# top of the body and took contact hits every 0.7 s.
+# The fix: for a CONTACT body SLOWER THAN US whose frozen projection would pass
+# us this horizon, project it as a pursuer that FOLLOWS and stops at touching
+# distance -- exactly the cap the second ply's pursuit forecast already uses
+# (see _advance_threats). Running away then ends farther from where the pursuer
+# can be, and the crowding gradient points away from the body instead of into
+# it. The slower-than-us scope is deliberate: the point is that flight CAN open
+# the gap (that is the reported failure), while against a faster body nothing
+# escapes and the frozen projection is not the reported failure -- those keep
+# the tuned 2.6.0 behaviour (a slow-character crowd regression was measured
+# when the cap was applied to un-outrunnable bodies too).
+# Only the room / roomfar terms read these two projections; every other reader
+# (blast counting, enclosure, the second ply) keeps the old ones. The cap only
+# engages when gap < speed*span (~200-250 px), which is the pathological case;
+# distant bodies are projected exactly as before.
+# --arb-roomtrack=0 restores the 2.6.0 frozen projection exactly (control arm).
+const ROOM_TRACK = 1.0           # --arb-roomtrack
+
 # -- v2.3.0: hit-adaptive alert --
 # A build that just took a big hit should behave more cautiously for a moment.
 # Online, cheap, and trivially switchable: compare hp_ratio with the previous
@@ -646,6 +676,7 @@ var adapt_secs = ADAPT_SECS      # --arb-adaptsecs
 # behaviour; every one has an exact 2.4.0 control arm (=0).
 var breakout_enable = BREAKOUT_ENABLE   # --arb-breakout
 var bounty_enable = BOUNTY_ENABLE       # --arb-bounty
+var room_track = ROOM_TRACK             # --arb-roomtrack
 var w_space = W_SPACE                   # --arb-space: open-floor potential
 var goal_enable = GOAL_ENABLE           # --arb-goal
 var w_goal = W_GOAL                     # --arb-goalw
@@ -836,6 +867,8 @@ var _p_aimed = []                # true for KIND_PROJ / KIND_DASH: a thing that 
 var _p_start = []                # wind-up delay
 var _p_end = []                  # when it stops being dangerous, clamped to horizon
 var _p_future = []               # where it will be at the horizon
+var _p_room = []                 # v2.6.1: crowding projection (room term)
+var _p_room_far = []             # v2.6.1: crowding projection (roomfar term)
 var _p_far = []                  # where it will be at FAR_T (crowd runway)
 
 
@@ -895,6 +928,7 @@ func apply_overrides(d: Dictionary) -> void:
 	# v2.5.0 switches: every one of these at 0 is the exact 2.4.0 control arm.
 	if d.has("breakout"): breakout_enable = float(d["breakout"])
 	if d.has("bounty"): bounty_enable = float(d["bounty"])
+	if d.has("roomtrack"): room_track = float(d["roomtrack"])
 	if d.has("space"): w_space = float(d["space"])
 	if d.has("goal"): goal_enable = float(d["goal"])
 	if d.has("goalw"): w_goal = float(d["goalw"])
@@ -911,6 +945,7 @@ func apply_overrides(d: Dictionary) -> void:
 		print("ARBITER v2.5.0: breakout=%.2f goal=%.2f goalw=%.2f walk=%.2f pursuit=%.2f" % [
 			breakout_enable, goal_enable, w_goal, walk_enable, pursuit_enable])
 		print("ARBITER v2.6.0: bounty=%.2f space=%.2f" % [bounty_enable, w_space])
+		print("ARBITER v2.6.1: roomtrack=%.2f" % [room_track])
 
 
 # Returns the chosen unit direction, or ZERO to stand still.
@@ -1176,7 +1211,7 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 			# mutates the old ones -- and put them back whatever happens below.
 			var saved_prepared = [_p_pos, _p_vel, _p_rad, _p_soft, _p_coef,
 					_p_still, _p_kill, _p_mark, _p_aimed, _p_start, _p_end,
-					_p_future, _p_far]
+					_p_future, _p_far, _p_room, _p_room_far]
 			var saved_hop_wanted = _hop_wanted
 			var saved_aoe_n = last_aoe_n
 			var saved_last_dir = last_dir
@@ -1234,6 +1269,8 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 			_p_end = saved_prepared[10]
 			_p_future = saved_prepared[11]
 			_p_far = saved_prepared[12]
+			_p_room = saved_prepared[13]
+			_p_room_far = saved_prepared[14]
 			_hop_wanted = saved_hop_wanted
 			last_aoe_n = saved_aoe_n
 			last_dir = saved_last_dir
@@ -1419,6 +1456,8 @@ func _prepare(p0: Vector2, speed: float, body_radius: float, threats: Array,
 	_p_end = []
 	_p_future = []
 	_p_far = []
+	_p_room = []
+	_p_room_far = []
 
 	var inv_hp = 1.0 / max(current_hp, 1.0)
 	var reach = speed * horizon          # everything we could possibly walk to
@@ -1499,8 +1538,33 @@ func _prepare(p0: Vector2, speed: float, body_radius: float, threats: Array,
 		_p_kill.push_back(kill)
 		_p_start.push_back(t[T_START])
 		_p_end.push_back(t_end)
-		_p_future.push_back(pos + vel * span)
-		_p_far.push_back(pos + vel * max(FAR_T - t[T_START], 0.0))
+		var future_pos = pos + vel * span
+		var future_far = pos + vel * max(FAR_T - t[T_START], 0.0)
+		# v2.6.1: the crowding projection must not let a pursuer overshoot us.
+		# A CONTACT body whose frozen projection passes the player inside this
+		# horizon is projected as a pursuer: it walks toward us and stops at
+		# touching distance, so radial flight ends farther from it than orbiting.
+		# Non-contact kinds and distant bodies keep their old projection, and
+		# --arb-roomtrack=0 restores it for everyone (exact 2.6.0 control arm).
+		if room_track != 0.0 and kind == KIND_CONTACT and speed_of > 1.0 \
+				and speed_of < speed:
+			# Scoped to bodies we can actually outrun: the point of the cap is
+			# that flight CAN open the gap, so the crowding term must not call
+			# flight crowded. Against a body faster than us the old projection is
+			# not the reported failure (nothing escapes) and changing it perturbs
+			# the tuned slow-player crowd cases, so those keep the frozen
+			# projection. --arb-roomtrack=0 still restores it for everyone.
+			var track_cap = gap - radius
+			if track_cap < speed_of * span:
+				var track_dir = vel / speed_of
+				var track_now = max(track_cap, 0.0)
+				future_pos = pos + track_dir * track_now
+				future_far = pos + track_dir * min(
+						speed_of * max(FAR_T - t[T_START], 0.0), track_now)
+		_p_future.push_back(future_pos)
+		_p_far.push_back(future_far)
+		_p_room.push_back(future_pos)
+		_p_room_far.push_back(future_far)
 
 
 # -- v2.3.0 planner helpers --
@@ -2105,13 +2169,13 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 		if _p_mark[i]:
 			continue    # a spawn marker takes up no room and blocks no heading
 		if want_far:
-			var offf = _p_far[i] - p_far
+			var offf = _p_room_far[i] - p_far
 			var dff = offf.length_squared()
 			if dff < far_sq:
 				var edge_far = sqrt(dff) - _p_rad[i]
 				if edge_far < far_room:
 					far_room = edge_far
-		var off = _p_future[i] - p_end
+		var off = _p_room[i] - p_end
 		var off_sq = off.length_squared()
 		if off_sq < scan_sq:
 			var dist = sqrt(off_sq)

@@ -13,6 +13,7 @@ The character moves and dodges by itself during waves. [b]Every decision stays y
 [*]Dodges bullets, chargers, AoE telegraphs, spawn markers
 [*]Kites at weapon range, collects materials/food/trees, avoids walls/corners
 [*]Planning (v2.5.0): predicts an incoming encirclement and breaks out BEFORE the ring closes; commits to high-value pickups it would otherwise pass (DLC evolution fruits, hurt fruit, trees), including the ones that are lost at the wave horn
+[*]Contact fix (v2.6.1): the bot no longer drifts into a monster and orbits it in otherwise calm, sparse waves (chasing bodies are now projected as pursuers in the crowding terms instead of being extrapolated through you); a winding-up charger's frozen body is priced; elite/boss/DLC non-circle contact hitboxes can no longer be under-estimated. Opt-outs: --arb-roomtrack / --arb-windup / --arb-hitbox
 [*]Space & special targets (v2.6.0): retreats from the wall band before a crowd squeezes it shut and resists drifting to the edge; approaches special targets (bosses/elites, spawner eggs, cursed/evolved) when it is safe, prices item crates as items and loot aliens as worth a detour
 [*]DLC-aware (v2.4.0): engages cursed enemies (Abyssal Terrors) and evolved meca/mutant enemies (Primal Dread) by default, and walks over the Primal Dread evolution consumables (meca/mutant fruit, mutation fruit, meca parts). Both stances are adjustable — use a negative `--arb-curse` / `--arb-evolved` value to avoid them instead.
 [*]Behaviour priors are inferred from the build at runtime (HP/armor/dodge, lifesteal, "fire while moving", structures, economy mechanics) instead of a per-character lookup table
@@ -38,6 +39,7 @@ Steering/perception core is from [url=https://github.com/boardengineer/botato]BO
 
 角色在波次内自动走位、闪避、砍树、受伤后吃果子、捡材料；[b]所有决策仍然由你来做[/b]：升级三选一、商店购买/刷新/锁定、开箱/消耗品、点"下一波"、角色/武器/难度选择。
 
+v2.6.1 贴身/碰撞修复：不再“场上没几只怪却贴着怪打转”——拥挤项改为追击投影（逃跑不再被算成更拥挤）；蓄力定身怪补上接触价；精英/Boss/DLC 非圆形碰撞体的接触距离不再低估。开关：--arb-roomtrack / --arb-windup / --arb-hitbox，全 0 可回退。
 v2.6.0 空间规划/特殊目标：不会被一点点挤到地图边缘（贴墙带提前撤离 + open-floor 势场），会主动接近精英/Boss、生成器蛋、诅咒/进化怪等特殊目标，物品箱按“一个物品”定价、逃跑掉落怪值得追。开关：--arb-space / --arb-bounty / --arb-boxes，全 0 可回退。
 
 v2.5.0 规划能力：会预测“马上要被包围”（按追击者会转向、1.8s 后的合围空缺）并在环合上之前主动突围；会给高价值物品（DLC 进化果/受伤果子/树）做目标承诺，而不是只吃路过的；修好了“走到进化物品旁却不捡/停在圈边不消费”的拾取语义，并给波末会消失的机械/异变果实加拾取紧迫度。开关：--arb-breakout / --arb-goal / --arb-pursuit / --arb-walk / --arb-waveend，全 0 精确回到 2.4.0 行为。
@@ -57,6 +59,7 @@ v2.3.0 策略升级：远程 build 保持在射程边缘风筝而不是贴脸；
 
 [b]Changelog[/b]
 [list]
+[*]2.6.1 — contact fix: crowded-terms now project chasers as pursuers (so fleeing a chaser is no longer priced as more crowded than orbiting it), the frozen body of a winding-up charger is priced, and elite/boss/DLC non-circle contact hitboxes are never under-estimated. Opt-outs: --arb-roomtrack / --arb-windup / --arb-hitbox.
 [*]2.6.0 — space & opportunities: wall-band retreat (same pursuit rollout, no contact discount) plus a weak open-floor potential against gradual edge drift; bounty approach toward special targets (boss/elite, spawner egg, cursed/evolved) inside a safety window; item crates priced as item choices, loot aliens worth chasing. Opt-outs: --arb-space / --arb-bounty / --arb-boxes.
 [*]2.5.0 — planning: pre-emptive breakout from a closing encirclement (forecasts the ring 1.8 s ahead with pursuing bodies and commits to a pursuit-rollout escape line; contact is discounted during the run, bullets/dashes/AOE stay full price); committed high-value item goals with a value/ETA choice and a close-in candidate; one-shot walk-on pickup semantics for the DLC evolution consumables (the v2.4 rim was misread as a held revive zone, so the bot parked on it); end-of-wave urgency for meca/mutant fruits (x1..x4); pursuit-aware second ply. Exact v2.4 control arm: --arb-breakout=0 --arb-goal=0 --arb-pursuit=0 --arb-walk=0 --arb-waveend=0.
 [*]2.4.0 — DLC-aware movement: engages cursed enemies (curse stat) and evolved meca/mutant enemies by default, with signed adjustable stance flags (--arb-curse / --arb-evolved; negative = avoid); collects the Primal Dread evolution consumables by walking over them (--arb-evo, 0 = old behaviour); non-healing consumables are no longer priced as food (poisoned fruit is avoided).

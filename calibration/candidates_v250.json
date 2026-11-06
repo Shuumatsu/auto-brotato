@@ -10,13 +10,34 @@
         "waveend": 0,
         "bounty": 0,
         "space": 0,
-        "boxes": 0
+        "boxes": 0,
+        "roomtrack": 0,
+        "windup": 0,
+        "hitbox": 0
       }
     },
     {
       "name": "planning",
       "overrides": {}
+    },
+    {
+      "name": "no_roomtrack",
+      "overrides": {
+        "roomtrack": 0
+      }
+    },
+    {
+      "name": "no_windup",
+      "overrides": {
+        "windup": 0
+      }
+    },
+    {
+      "name": "no_hitbox",
+      "overrides": {
+        "hitbox": 0
+      }
     }
   ],
-  "note": "v2.6.0 planning A/B. control = exact v2.4.0 behaviour (all EIGHT switches 0: breakout/goal/pursuit/walk/waveend/space/bounty/boxes). planning = shipped v2.6.0 defaults. Optional attribution arms: no_breakout {breakout:0}, no_goal {goal:0}, no_space {space:0}, no_bounty {bounty:0}, no_boxes {boxes:0}. Older builds ignore unknown keys, so a 2.5.0/2.4.0 zip can serve as an external control (it will simply ignore the v2.6 keys)."
+  "note": "v2.6.1 planning/contact A/B. control = exact v2.4.0 behaviour (all ELEVEN switches 0: breakout/goal/pursuit/walk/waveend/space/bounty/boxes + roomtrack/windup/hitbox). planning = shipped v2.6.1 defaults. Optional attribution arms: no_breakout {breakout:0}, no_goal {goal:0}, no_space {space:0}, no_bounty {bounty:0}, no_boxes {boxes:0}, no_roomtrack {roomtrack:0}, no_windup {windup:0}, no_hitbox {hitbox:0}. Older builds ignore unknown keys, so a 2.5.0/2.4.0 zip can serve as an external control (it will simply ignore the new keys)."
 }

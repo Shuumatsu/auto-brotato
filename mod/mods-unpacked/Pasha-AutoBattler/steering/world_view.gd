@@ -313,6 +313,30 @@ var walk_tag = 1.0                 # --arb-walk: 1 = append r[4] walk-on tag; 0 
 var bounty_tag = 1.0               # --arb-bounty: special-target tag + loot value
 var boxes_mult = 1.0               # --arb-boxes: item crate value
 var waveend_mult = 1.0             # --arb-waveend: 1 = wave-end fruit urgency; 0 = off
+
+# -- v2.6.1: two contact-model gaps that let the bot walk INTO a body --------
+# Field report after 2.6.0: "sometimes in relatively simple situations the
+# character collides with monsters". Alongside the arbiter's crowding-projection
+# fix (--arb-roomtrack), two world_view-side gaps can price a damaging body at
+# zero:
+#   windup  -- a charging enemy that is winding up is represented ONLY by its
+#              future dash lane (_dash_corridor replaces the walker threat), but
+#              the lane starts at launch. During the 0.3-0.5 s telegraph the
+#              body is frozen in place, its contact hitbox is live, and the
+#              threat list contained NO threat at its position: a probe priced
+#              walking through the body at 0.00 vs 17.42 for a plain walker.
+#   hitbox  -- the contact price used the enemy's HURTBOX radius while the game
+#              deals contact damage with the enemy HITBOX (verified in the
+#              decompiled sources + scenes). For normal trash the hurtbox is the
+#              bigger circle (over-cautious, safe), but elites/bosses and the
+#              DLC2 brachiosaurus (capsule hitbox, 148-212 px real reach vs a
+#              41 px model) UNDER-estimate the reach; the brachiosaurus case had
+#              a 147 px band where the contact cost was exactly zero.
+# Both are conservative-direction fixes: plain trash keeps its exact old radius
+# and non-charging enemies keep their exact old tuple, so the all-zero control
+# arms are unchanged. --arb-windup=0 / --arb-hitbox=0 are the exact opt-outs.
+var windup_priced = 1.0            # --arb-windup: price the frozen wind-up body
+var hitbox_scan = 1.0              # --arb-hitbox: never under-estimate contact reach
 # Counts refreshed every gather and printed by the once-a-second BOTLOG DLC
 # line: a real-game A/B has to prove the bot SAW the DLC content, not only that
 # it scored it differently.
@@ -1005,6 +1029,16 @@ func apply_overrides(d: Dictionary) -> void:
 		# v2.6.0: 0 = item crates keep their 2.5.0 healing-only pricing.
 		boxes_mult = float(d["boxes"])
 		print("WORLDVIEW boxes_mult=%.2f" % boxes_mult)
+	if d.has("windup"):
+		# v2.6.1: 0 = a winding-up charger keeps only its dash lane (the 2.6.0
+		# tuple), i.e. its frozen body is free to walk over.
+		windup_priced = float(d["windup"])
+		print("WORLDVIEW windup_priced=%.0f" % windup_priced)
+	if d.has("hitbox"):
+		# v2.6.1: 0 = contact reach comes from the hurtbox only (the 2.6.0
+		# model), so the elite/boss/brachiosaurus under-estimate is restored.
+		hitbox_scan = float(d["hitbox"])
+		print("WORLDVIEW hitbox_scan=%.0f" % hitbox_scan)
 
 
 # Expected damage applications from a body over one horizon: how often it hits
@@ -1959,6 +1993,23 @@ func _add_unit(unit, pos: Vector2, range_sq: float, target_range_sq: float, pick
 	var corridor = _dash_corridor(unit)
 	if not corridor.empty():
 		corridor[3] = threat_damage
+		# v2.6.1: during the wind-up the dash lane has not started yet, but the
+		# body is FROZEN in place with a live contact hitbox. The lane tuple does
+		# not cover the pre-launch interval (the arbiter integrates a threat only
+		# over [T_START, T_END]), so without this the wind-up body is free to
+		# walk over: a probe priced walking straight through it at 0.00 vs 17.42
+		# for a plain walker (20 px case; 0.93 vs 16.15 at 60 px). Price the
+		# frozen body as a contact threat that expires exactly when the dash
+		# launches; the lane then takes over. In flight (T_START == 0) the lane
+		# already is the body, so nothing is added. --arb-windup=0 = old tuple.
+		var launch = float(corridor[5])
+		if windup_priced != 0.0 and launch > 0.0001:
+			var frozen_health = 20.0
+			if unit.current_stats and unit.current_stats.health > 0:
+				frozen_health = float(unit.current_stats.health)
+			threats.push_back([unit.position, Vector2.ZERO, radius, threat_damage,
+					KIND_CONTACT, 0.0, _contact_ticks(0.0), launch,
+					_kill_ref / (_kill_ref + frozen_health)])
 		threats.push_back(corridor)
 		return    # a dashing body is described by its dash, not by its walk
 
@@ -2378,11 +2429,51 @@ func _mitigation(player) -> float:
 
 
 func _body_radius(unit) -> float:
+	var r = BODY_RADIUS_FALLBACK
 	if unit._hurtbox and unit._hurtbox._collision:
 		var shape = unit._hurtbox._collision.shape
 		if shape is CircleShape2D:
-			return shape.radius
-	return BODY_RADIUS_FALLBACK
+			r = shape.radius
+		# A non-circle hurtbox was not expressible before (the old code fell back
+		# to BODY_RADIUS_FALLBACK); leave that fallback in place so the switch-off
+		# path stays the exact 2.6.0 value. The contact-dealing HITBOX branch
+		# below supplies the conservative reach instead -- the hurtbox is the
+		# damage-RECEIVING shape and its capsule (brachiosaurus) is much wider
+		# than the true contact reach.
+	# v2.6.1: contact damage is dealt by the enemy HITBOX — the game's contact
+	# pair is (enemy Hitbox, player Hurtbox) — while this model historically used
+	# the enemy HURTBOX radius. For normal trash that is the larger circle (safe,
+	# over-cautious); for elites/bosses and DLC non-circle hitboxes it can be
+	# SMALLER than the real reach, which is the "bot walks into the monster"
+	# direction. Take the larger reach of the two and never under-estimate: plain
+	# trash keeps its exact old value, so behaviour is unchanged for it.
+	if hitbox_scan != 0.0 and ("_hitbox" in unit) and unit._hitbox \
+			and ("_collision" in unit._hitbox) and unit._hitbox._collision:
+		r = max(r, _collision_reach(unit._hitbox._collision, unit))
+	return r
+
+
+# Conservative circle radius AROUND THE UNIT ORIGIN enclosing one collision
+# shape: the shape's own local reach x effective node scale, plus the shape
+# centre's distance from the unit origin. Used only for shapes the old
+# Circle-only read could not express (elites, DLC capsules, scaled nodes), and
+# only in the over-cautious direction: it can price contact earlier than the
+# true hitbox, never later.
+func _collision_reach(col, unit) -> float:
+	if col == null or col.shape == null:
+		return BODY_RADIUS_FALLBACK
+	var local = BODY_RADIUS_FALLBACK
+	var shape = col.shape
+	if shape is CircleShape2D:
+		local = shape.radius
+	elif shape is CapsuleShape2D:
+		# height counts the end caps, so height * 0.5 is the axial half-extent
+		local = max(shape.radius, shape.height * 0.5)
+	elif shape is RectangleShape2D:
+		local = sqrt(shape.extents.x * shape.extents.x + shape.extents.y * shape.extents.y)
+	var sc = col.global_transform.get_scale()
+	var centre = col.global_position - unit.global_position
+	return local * max(abs(sc.x), abs(sc.y)) + centre.length()
 
 
 # Kite by ranged weapons only: one melee sidearm must not drag the whole build

@@ -45,7 +45,7 @@ Brotato 的玩法决定了自动操作其实**只需要接管移动**：武器�
 ## 二、安装（Steam / macOS）
 
 > **当前状态（2026-11 实测后）**：本 Mod 已安装到你的游戏里：
-> `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.6.0-fork.zip`
+> `~/Library/Application Support/Steam/steamapps/workshop/content/1942280/3598984651/AutoBattler-2.6.1-fork.zip`
 > （借用了 Mod Options 的工坊 item 目录）。测试用的 harness 已删除，其它 8 个 Mod 已恢复，
 > 测试前的 run 存档已还原。启动游戏即可生效；卸载/重装用 `./install.sh`。
 
@@ -59,7 +59,7 @@ cd auto-brotato
 脚本会：
 1. 自动定位 Brotato 安装目录；
 2. 找到你已安装的创意工坊 mod 目录（默认挑第一个，例如 Mod Options 的 `3598984651`）；
-3. 把构建好的 `dist/AutoBattler-2.6.0-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
+3. 把构建好的 `dist/AutoBattler-2.6.1-fork.zip` 复制进该目录（loader 会加载该目录内**所有** zip）。
 
 然后**从 Steam 启动 Brotato**即可。
 
@@ -78,7 +78,7 @@ cd auto-brotato
 
 1. 启动 Steam（需登录拥有 Brotato 的账号）；
 2. 打开 `<Brotato>/GodotWorkshopUtility.app`；
-3. 选择 `dist/AutoBattler-2.6.0-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
+3. 选择 `dist/AutoBattler-2.6.1-fork.zip` 作为 mod 包，按工具提示创建/更新一个 Workshop item
    （可见性选"私有/不公开"也可以，自己订阅即可）；
 4. 上传后在 Steam 创意工坊订阅该 item，正常启动游戏。
 
@@ -447,7 +447,87 @@ killability 折减（目标价值下降）；伤害/速度变大 → 接触威�
 
 ---
 
+## 五点九、v2.6.1 贴身/碰撞修复（第三轮反馈）
+
+玩家反馈（v2.6.0 试玩后）：“有时候在比较简单的局面上，角色会撞到怪物，感觉是某个 bug。”
+
+### 1. 根因（离线闭环复现，不是 v2.5/v2.6 回归）
+
+用“真实接触几何”的确定性 1v1 闭环（scorer 收到 world_view 实际会给的敌人 **Hurtbox** 半径；
+世界碰撞按真实规则 **敌人 Hitbox + 玩家 Hurtbox 21px**）复现：
+
+- 一只 6 伤害的追击者从 380px 外追来，**出货后的 v2.6.0 与 v2.4 控制臂结果完全相同**：
+  bot 绕到怪身上转圈，`contact_s≈11.2s`、17 次接触伤害、**t≈17.2s 死亡**。
+  所以这是基础代价模型（BOTato 时代继承）的问题，与 v2.5/v2.6 的规划层无关。
+- 逐帧代价分解定位：接触威胁在 `_p_rad`（= 敌人半径 + 玩家半径）**内部饱和为 1.0**，一旦贴住，
+  “往哪边走”都付同样的满价——威胁项本身没有“拉开距离更便宜”的梯度。真正决定方向的是
+  拥挤项 `room` / `roomfar`：它们用敌人**当前速度直线外推**。追击者若比 `speed×horizon`
+  （~200–250px）更近，直线投影会**穿过并越过玩家**，于是：
+  - 径向逃跑：终点正好落在被投影的怪旁边 → 拥挤价高；
+  - 切向绕圈/迎面穿过：投影甩到侧面 → 拥挤价低甚至为 0。
+  实测 `--arb-room=0` 使“逃跑”一格降价 4.97、`--arb-roomfar=0` 再降 2.07；两者同时为 0 时
+  逃跑才变成最便宜的方向。叠加 `W_DPS`（把怪保持在射程内的击杀收益，必要使能项）与
+  `W_HYST`（保持上一帧朝向），就形成“贴上去—绕圈—持续吃接触伤害”的稳定轨道。
+- 两个同类的“未计价身体”缺口也一并修掉：
+  1. **蓄力定身怪**：`world_view._add_unit` 对冲锋怪只写未来走廊（`T_START=起冲时刻`），
+     走廊只覆盖起冲之后；定身 0.3–0.5s 内身体有接触伤害却完全不计威胁（单帧探针：20px 处
+     穿过定价 **0.00**，普通行走怪 17.42；60px 处 0.93 vs 16.15）。
+  2. **接触半径低估**：接触伤害实际由敌人 **Hitbox** 判定，而模型一直用（通常更大、偏保守的）
+     **Hurtbox** 半径。小怪没问题，但精英/Boss 的 Hitbox 更远（+4…+13px），DLC2 腕龙（brachiosaurus）是
+     胶囊形 Hitbox（真实 148–212px vs 模型 41px），存在 **147px 的“零接触价”贴身带**。
+
+### 2. 实现（默认开启，逐项可回退）
+
+- **拥挤项追击投影**（`--arb-roomtrack`，arbiter.gd）：在 `_prepare` 中额外构建
+  `_p_room` / `_p_room_far`。对 **CONTACT 且比自己慢**（`speed_of < speed`，即确实能甩掉）的
+  威胁，若其直线投影会在本 horizon 内越过玩家（`gap - radius < speed*span`），改为
+  “朝玩家追、到接触距离停住”的投影（与第二层 `_advance_threats` 的 pursuit cap 同一公式）。
+  比玩家快的怪保持 2.6.0 冻结投影——它们本来就甩不掉，且实测对无解慢速人群局做此改动会产生
+  新的挨打回归（`slow_player_herd` hp100→40）。只有 `room` / `roomfar` 读这两个数组；
+  `_p_future` / `_p_far` 保持原样供 enclosure / 爆炸交易 / 第二层使用 → 其余代价项逐值不变。
+  远处身体的投影与旧行为逐位相同（不触发 cap 时走原表达式）。
+- **蓄力身体计价**（`--arb-windup`，world_view.gd）：走廊存在且 `T_START>0` 时，额外 push 一个
+  `KIND_CONTACT`、`T_END=T_START` 的定身威胁（`vel=0`，一次性接触 tick），起冲瞬间失效。
+- **接触距离不再低估**（`--arb-hitbox`，world_view.gd）：`_body_radius` 对圆形 Hurtbox 仍取
+  原值（普通小怪偏保守的旧行为逐值不变），再与 **Hitbox 保守外接半径**取较大者；非圆形
+  （Capsule/Rectangle）按“局部最大半径×有效缩放 + 形状中心到 unit 原点的距离”构成保守圆
+  （腕龙约 234px，仍比真实最大 212px 保守）。非圆形 Hurtbox 本身不参与接触计价——它是
+  承伤形状，腕龙胶囊承伤圈比真实接触范围大得多；`--arb-hitbox=0` 时回退路径与 2.6.0 完全一致
+  （非圆形 -> fallback 20px）。
+- 控制臂：三个开关全 0 + v2.5/v2.6 全部开关 0 = v2.4.0 精确行为（门禁 C 场景 3×1800 帧逐帧一致）。
+
+### 3. 离线验证（真实 `arbiter.gd` + 真实接触几何）
+
+| 场景（1v1，真实几何；9 个 real_kill6 / real_* 场景） | v2.6.0 | v2.6.1 |
+|---|---|---|
+| real_kill6_pursuer_190（6 伤追猎者，380px 外） | 11.2s 接触 / 17 hits / **t=17.2s 死亡** | **0 接触 / HP 100** |
+| real_kill6_baby_alien_190/250 | 11.2s / 17 hits / 死亡 | **0 / 100** |
+| real_kill6_pursuer_250 | 11.2s / 17 hits / 死亡 | **0 / 100** |
+| real_1v1_*（210–250px/s，8 个） | 13–19s 接触 / 死亡或掉到 46–62 HP | **全部 0 接触 / HP 100** |
+
+- 验收门禁 `_research/planning-v250/gate/run.sh` → **`RESULT checks=19 fails=0 PASS`**
+  （A1 默认存活 30s、contact 0.53→0.32s；C 场景控制臂与 v2.4.0 逐帧一致）。
+- `planner-selftest` → **`RESULT checks=294 fails=0 PASS`**（新增 room_track 默认/override 断言）；
+  `check_gd.sh` PASSED，无 SCRIPT ERROR。
+- 性能：每个威胁每次决策只多一次 `min/max` 与两次数组 push；A1 `choose()` 仍在 ~2ms 量级
+  （门禁 D 行 dev/control 比值 ~1.3x，与 2.6.0 相同）。
+- 真机 A/B 仍需用户同意后跑（候选/场景已加入 3 个新开关控制臂）。
+
+---
+
 ## 六、验证状态（诚实说明）
+
+### v2.6.1 离线验收（2026-11-06，第三轮）
+
+- `_research/planning-v250/gate/run.sh` → **`RESULT checks=19 fails=0 PASS`**（控制臂加入
+  `roomtrack=0`；A1 contact 0.53→0.32s，A2 0.43→0.25s，C 逐帧一致）。
+- `_research/planner-selftest/run.sh` → **`RESULT checks=294 fails=0 PASS`**。
+- `_research/collision-bug/sim/`（真实接触几何闭环）：9 个 1v1 场景 v2.6.0 全部贴怪/死亡，
+  v2.6.1 全部 0 接触；`real_geom_suite` 40 个几何场景同样 0 接触。
+- `_research/collision-bug/{geom,logic,sim}/FINDINGS.md`：几何真值、逐项代价消融、闭环复现的
+  完整证据链（含 `contact_table.json`）。
+- 已知未覆盖：真机 A/B；DLC2 丛林脚本层的 Hitbox 运行时缩放/隐藏；蓄力走廊结束到恢复行走之间的
+  horizon 尾段仍未单独计价。
 
 ### v2.6.0 离线验收（2026-11-06，第二轮）
 
@@ -615,9 +695,9 @@ auto-brotato/
 ├── README.md                    # 项目主页（简短宣传）
 ├── docs/TECHNICAL.md            # 本文件（详细技术文档）
 ├── install.sh                   # 安装/卸载（Steam 工坊注入 / 非 Steam mods 目录）
-├── build.sh                     # 构建 dist/AutoBattler-2.6.0-fork.zip
+├── build.sh                     # 构建 dist/AutoBattler-2.6.1-fork.zip
 ├── dist/
-│   └── AutoBattler-2.6.0-fork.zip
+│   └── AutoBattler-2.6.1-fork.zip
 ├── mod/                         # Mod 源码（zip 内容）
 │   ├── LICENSE                  # 上游 BOTato MIT 许可
 │   ├── README-FORK.md           # 随 zip 分发的说明
