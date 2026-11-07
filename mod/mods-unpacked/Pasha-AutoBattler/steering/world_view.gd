@@ -1664,8 +1664,15 @@ func _econ_build_ctx(row, player, spawner, missing_hp: float, max_hp: float,
 				* GOLD_DRAW_QUIET_RADIUS:
 			targets_near += 1
 	var waves_total = 20
-	if "nb_of_waves" in RunData:
-		waves_total = max(int(RunData.nb_of_waves), int(RunData.current_wave))
+	# Real-game autoloads must not be probed with the `in` operator: the mod
+	# loader compiles steering scripts before the RunData singleton is a typed
+	# constant, and `"key" in RunData` fails at PARSE time with
+	# "Invalid operand types (String and null)" (v2.9.0 real-game regression:
+	# the whole world_view failed to load, so the autopilot never moved).
+	# Object.get() is the runtime-safe form (returns null when absent).
+	var nb_waves = RunData.get("nb_of_waves")
+	if typeof(nb_waves) == TYPE_INT or typeof(nb_waves) == TYPE_REAL:
+		waves_total = max(int(nb_waves), int(RunData.current_wave))
 	return {
 		"wave": int(RunData.current_wave),
 		"waves_total": waves_total,

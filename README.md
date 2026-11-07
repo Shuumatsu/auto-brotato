@@ -27,6 +27,19 @@
 - ✅ 只装 2 个最小扩展：**不会替你买、刷、锁、升级、开箱、点下一波**
 - ✅ 单人 Brotato 1.2.0.1 实机验证
 
+### v2.9.1 真机回归修复（v2.9.0 纯挂机）
+
+v2.9.0 在真机上**角色完全不动**：`world_view.gd` 里的 `if "nb_of_waves" in RunData:` 在离线 stub
+解析门禁能过，但真实 mod-loader 编译上下文中 `String in RunData` 会以
+`Invalid operand types ("String" and "null")` 在 **PARSE 阶段**失败 → world_view 整个脚本加载失败，
+movement behaviour 的 preload 链失败 → autopilot 静默不动。v2.9.1 修复：
+
+- 改为运行时安全写法 `RunData.get("nb_of_waves")`（缺失返回 null，不再 parse 期失败）。
+- 新增 `tests/tools/static_guard.py` 并接入 tracked 解析门禁：扫描全部 shipped `.gd`，禁止
+  `"key" in <autoload>` 这一整类“stub 能过、真机 parse 失败”的写法（含 `--selftest` 负向验证）。
+- 真机冒烟（2.9.1 build，2 角色 × `--arb-econ=0/1` 共 4 局）：`move_ratio 0.90–0.93`、全部清波、
+  无 SCRIPT ERROR；`--arb-econ=0`（精确 v2.8.0）与默认 `--arb-econ=1` 都正常移动。
+
 ### v2.9.0 经济目标层 + 结构性重构（review-v3，第六轮）
 
 这一版把“走路目标”从“生存成本最小化 + 资源弱正则”改为**按获取途径定价的经济目标**，并做了一轮证据驱动的结构重构（详见 [docs/REVIEW-v3.md](docs/REVIEW-v3.md)）。

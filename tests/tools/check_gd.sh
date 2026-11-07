@@ -14,10 +14,15 @@
 # The target list is generated from the working tree, so new mod scripts are
 # picked up automatically (no hardcoded file list).
 #
+# Before the Godot parse pass, tests/tools/static_guard.py scans every shipped
+# .gd for hazards that compile in the stub project but fail in the real game
+# (autoload `"key" in RunData` is a PARSE error in-game; v2.9.0 regression).
+#
 # --selftest proves the checker is not a rubber stamp:
 #   1. current sources must pass (baseline),
 #   2. injecting a syntax error into EVERY target must fail at the expected line,
-#   3. an undeclared singleton reference must be detected.
+#   3. an undeclared singleton reference must be detected,
+#   4. the static guard must catch the known in-game-only pattern.
 #
 # Env:
 #   GODOT_BIN   Godot 3.6.x binary (required in CI / clean checkout).
@@ -106,6 +111,15 @@ ok_count() { strip_ansi <"$WORK/check.log" | grep -ac '^CHECK_OK ' || true; }
 
 # --- normal mode -----------------------------------------------------------
 main_check() {
+	# Static guards first: hazards that COMPILE in the stub project but fail in
+	# the real game. v2.9.0 shipped `"nb_of_waves" in RunData` -- the stub parse
+	# gate passed, the real mod-loader compile failed at parse time, world_view
+	# never loaded and the autopilot never moved. See static_guard.py.
+	if ! python3 "$SCRIPT_DIR/static_guard.py" "$MOD"; then
+		echo "STATIC GUARD FAILED" >&2
+		echo "RESULT check_gd targets=0 loaded=0 failed=1 FAIL" >&2
+		exit 1
+	fi
 	prepare_work
 	make_targets
 	run_check
@@ -130,7 +144,7 @@ main_check() {
 selftest() {
 	local fails=0 checks=0
 
-	echo "== selftest 1/3: current sources parse (expect PASS) =="
+	echo "== selftest 1/4: current sources parse (expect PASS) =="
 	prepare_work
 	make_targets
 	run_check
@@ -146,7 +160,7 @@ selftest() {
 	fi
 	checks=$((checks + 1))
 
-	echo "== selftest 2/3: inject a syntax error into every target (expect FAIL + line) =="
+	echo "== selftest 2/4: inject a syntax error into every target (expect FAIL + line) =="
 	local target i=0
 	while IFS= read -r target; do
 		i=$((i + 1))
@@ -186,7 +200,7 @@ selftest() {
 	first_target="$(head -1 "$WORK/targets.txt")"
 	first_rel="${first_target#res://}"
 
-	echo "== selftest 3/3: undeclared singleton in a copy (expect FAIL + identifier) =="
+	echo "== selftest 3/4: undeclared singleton in a copy (expect FAIL + identifier) =="
 	prepare_work
 	make_targets
 	printf '\nvar __selftest_unknown = NoSuchService_xyz.value\n' >>"$WORK/$first_rel"
@@ -197,6 +211,15 @@ selftest() {
 	else
 		echo "FAIL undeclared singleton not detected: exit=$CHECK_EXIT"
 		print_log
+		fails=$((fails + 1))
+	fi
+	checks=$((checks + 1))
+
+	echo "== selftest 4/4: static guard catches autoload \`in\` (expect PASS) =="
+	if python3 "$SCRIPT_DIR/static_guard.py" --selftest; then
+		echo "PASS static guard selftest"
+	else
+		echo "FAIL static guard selftest"
 		fails=$((fails + 1))
 	fi
 	checks=$((checks + 1))

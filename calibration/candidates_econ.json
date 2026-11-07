@@ -1,0 +1,15 @@
+{
+  "candidates": [
+    {
+      "name": "econ0",
+      "overrides": {
+        "econ": 0
+      }
+    },
+    {
+      "name": "econ1",
+      "overrides": {}
+    }
+  ],
+  "note": "v2.9.0 economy objective layer A/B on the real game. econ0 = --arb-econ=0 = exact v2.8.0 control arm (no economy-layer pricing/planner; no extra reward fields). econ1 = shipped v2.9.0 defaults (economy layer ON). Both arms are the SAME build zip (2.9.0), only the switch differs. Primary metrics: reason/clears, min_hp/damage taken (survival non-regression), duration, trees= (tree commitment), fruit= (full-HP fruit / mid-wave consume), gold= (mid-wave gold pickup; note the harness quits at the wave timer BEFORE the horn vacuum, so gold left on the floor is auto-banked in the real game but not counted here), plus ground residue parsed from the archived per-second logs. Run with: python3 calibration/run_pilot.py --repeats 2 --build dist/AutoBattler-2.9.0-fork.zip --scenarios calibration/scenarios_econ.json --candidates calibration/candidates_econ.json --out calibration/results_econ.csv"
+}

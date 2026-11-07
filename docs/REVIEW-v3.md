@@ -174,3 +174,41 @@
 3. dlc-selftest 红套件未迁移（已在 `tests/README.md` 记录红原因）；历史轮次验收数字仍不可复现（harness 未版本化）。
 4. 结构重构为分阶段：Step1 完成了 contract/config/死代码；world_view/arbiter 的其余职责拆分（profile/威胁几何/规划器/telemetry）与 tuple→value class 化仍待后续迭代（arch FINDINGS §7 有完整迁移计划 M2–M6）。
 5. 冻结参考依赖 git 历史完整（CI 必须 `fetch-depth: 0`）；sim 套件 ~5 分钟，占 CI 大头。
+
+---
+
+## 6. 发布后回归：v2.9.0 真机“纯挂机” → v2.9.1 修复
+
+**现象**（真实游戏，用户报告 + harness 复现）：v2.9.0 安装后角色完全不动；harness 结果
+`move_ratio=0.05`、`us=0`（arbiter 从未完成一次决策），而 wave 仍能被倒计时清掉，所以表面上是
+“纯挂机”。`godot.log` 中重复出现：
+
+```
+SCRIPT ERROR: Parse Error: Invalid operand types ("String" and "null") to operator "in".
+   at: GDScript::reload (res://mods-unpacked/Pasha-AutoBattler/steering/world_view.gd:1667)
+SCRIPT ERROR: Parse Error: Couldn't fully preload the script ... (player_movement_behavior.gd:14)
+```
+
+**根因**：v2.9 经济层在 `_econ_build_ctx()` 里写了 `if "nb_of_waves" in RunData:`。在 stub 工程的
+离线解析门禁里 `RunData` 是可解析的 autoload，能编译；但真实 mod-loader 编译 steering 脚本时，
+`RunData` 尚未成为带类型的常量，`String in RunData` 被编译器按 null 右操作数折叠 → **PARSE 期失败**，
+整个 `world_view.gd` 加载失败 → movement behaviour 的 preload 链失败 → autopilot 静默返回零移动。
+后续波次的倒计时仍正常，所以复现出来就是“挂机但不报错”。
+
+**为什么离线门禁没抓到**（本报告的验证审计早已指出“测试存在 ≠ 测试有效”）：
+- `check_gd` 的 stub 工程提供的是可控 autoload 环境，与真实 mod-loader 的编译上下文不同；
+- `world_view` 的 tracked 测试（`tests/worldview`）固定走 `--arb-econ=0` 控制臂，econ=1 的
+  `_econ_build_ctx()` 路径没有 tracked 覆盖；
+- 经济层验收探针跑在 fake-world stub 工程里，同样复现不出真实 autoload 编译上下文。
+
+**修复（v2.9.1）**：
+1. `RunData.get("nb_of_waves")` 运行时探测（缺失返回 null），不再对 autoload 使用 `in`。
+2. 新增 tracked `tests/tools/static_guard.py`，接入 `check_gd` 主检查，禁止
+   `"key" in <autoload>` 这一类“离机能过、真机 parse 失败”的写法；`--selftest` 用 v2.9.0 原始模式做
+   负向验证（能检出）、并验证安全写法不被误报。
+3. **真机冒烟纳入发布前 gate**：2.9.1 build 在真实游戏跑 2 角色 × `--arb-econ=0/1` 共 4 局：
+   `move_ratio 0.90–0.93`、全部 `WAVE_CLEARED_TIMER`、0 SCRIPT ERROR；两个控制臂均正常移动。
+
+**流程教训**：离线 stub 解析门禁不能替代真实 mod-loader 加载冒烟；以后任何“新模块/新 preload/
+新 autoload 交互”的改动，发布前必须补一次真机（或 harness 驱动）冒烟，并把该类静态守卫纳入 CI。
+

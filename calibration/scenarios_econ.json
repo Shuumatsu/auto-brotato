@@ -1,0 +1,9 @@
+{
+  "scenarios": [
+    {"character": "character_ranger",  "difficulty": 3, "start_wave": 3, "speed": 3.0},
+    {"character": "character_farmer",  "difficulty": 3, "start_wave": 3, "speed": 3.0},
+    {"character": "character_lucky",   "difficulty": 3, "start_wave": 3, "speed": 3.0},
+    {"character": "character_soldier", "difficulty": 6, "start_wave": 3, "speed": 3.0}
+  ],
+  "note": "v2.9.0 economy A/B scenarios (real game, compensated 3.0x speed = same decision cadence). Ranger D3 w3 = generic economy; Farmer D3 w3 = full-HP fruit / harvesting build (consumable_stats_while_max, the build the economy layer prices differently); Lucky D3 w3 = gold pickup trigger (dmg_when_pickup_gold, the layer prices mid-wave gold for this build); Soldier D6 w3 = survival non-regression under real pressure. One episode per game launch; repeats via --repeats."
+}

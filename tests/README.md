@@ -21,7 +21,7 @@ Expected output: one `PASS` line per suite followed by `ALL SUITES PASSED`. Logs
 
 | # | Suite | Command | What it verifies | Expected result |
 |---|---|---|---|---|
-| 1 | `check_gd` | `tests/tools/check_gd.sh` | every `.gd` file shipped in `mod/` compiles against stub autoloads/classes (parse/compile gate; nothing is instantiated) | `RESULT check_gd targets=N loaded=N failed=0 PASS` |
+| 1 | `check_gd` | `tests/tools/check_gd.sh` | static guards (`tests/tools/static_guard.py`: forbids real-game-only parse hazards such as `"key" in <autoload>`) + every `.gd` file shipped in `mod/` compiles against stub autoloads/classes (parse/compile gate; nothing is instantiated) | `RESULT check_gd targets=N loaded=N failed=0 PASS` |
 | 2 | `check_gd --selftest` | `tests/tools/check_gd.sh --selftest` | the parse gate is not a rubber stamp: injects a syntax error into target scripts and an undeclared singleton, and requires the expected failure/line | `SELFTEST PASSED` (exit 0) |
 | 3 | `planner` | `tests/planner/run.sh` | arbiter synthetic selftest (`proj/test.gd`, 470 checks: 143 frozen-implementation differential + design contract + internal invariants) and the independent seeded fuzz falsifier (`proj/falsify_v270.gd`, 2476 checks) | `RESULT planner checks=470 fails=0 PASS` + `RESULT falsifier checks=2476 fails=0 PASS` |
 | 4 | `gate` | `tests/gate/run.sh` | closed-loop acceptance gate for the v2.5–v2.8 planning/coverage work (enclosure, item goals, control-arm equivalence vs frozen v2.4.0, bounty/opportunity probes, F1/F2/G1) | `RESULT gate checks=32 fails=0 PASS` |

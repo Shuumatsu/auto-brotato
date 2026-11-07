@@ -825,6 +825,19 @@ S1/S2/S3（真实武器射程 260px，进入 `max(weapon_range×0.9, 70) + 40 = 
 > 当前 tracked gate 覆盖：解析门禁、planner 470 + falsifier 2476、gate 32、world_view 固定参考 32、
 > 闭环 sim 74 条机器断言、经济目标层单帧/闭环断言。
 
+### v2.9.1 真机回归修复（2026-11-07）
+
+v2.9.0 真机表现是“**纯挂机**”（角色完全不动）。根因：`world_view.gd` 的
+`if "nb_of_waves" in RunData:` 在真实 mod-loader 编译上下文中是 **PARSE error**
+（`Invalid operand types ("String" and "null") to operator "in"`）——stub 工程的离线解析门禁
+无法复现该上下文，所以 v2.9.0 的门禁是绿的但游戏内 world_view 从未加载成功。修复：
+
+- `RunData.get("nb_of_waves")` 运行时探测（缺失返回 null），不再使用 autoload `in`。
+- 新增 tracked `tests/tools/static_guard.py` 并接入 `check_gd`：禁止 `"key" in <autoload>`
+  这类“离机能过、真机 parse 失败”的写法；带 `--selftest` 负向验证（能检出 v2.9.0 原始模式）。
+- 真机冒烟（2.9.1）：Ranger/Farmer × `--arb-econ=0/1` 共 4 局，`move_ratio 0.90–0.93`、
+  全部 `WAVE_CLEARED_TIMER`、0 个 SCRIPT ERROR。完整统计性 A/B（收益/生存）仍待后续批量跑。
+
 ### v2.9.0 离线验收（2026-11-06，review-v3）
 
 **结构性重构（Step1，行为保持）**

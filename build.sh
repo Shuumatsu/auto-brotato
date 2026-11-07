@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$PWD"
-VERSION="2.9.0"
+VERSION="2.9.1"
 NAME="AutoBattler-${VERSION}-fork"
 OUT="$ROOT/dist"
 mkdir -p "$OUT"
