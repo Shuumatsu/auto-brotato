@@ -269,7 +269,7 @@ func call_one(a, s, f):
 
 func old_switches_off():
 	return {"breakout": 0, "goal": 0, "pursuit": 0, "walk": 0,
-			"bounty": 0, "space": 0, "roomtrack": 0}
+			"bounty": 0, "space": 0, "roomtrack": 0, "pullsafe": 0}
 
 
 # v2.7.0 opportunity commitment state -- exists in both the frozen v2.7.0 and
@@ -338,7 +338,7 @@ func test_control_v27_fuzz(n_scn):
 	# The reference is the frozen v2.7.0 arbiter with its own defaults (opp=1,
 	# agg=1, every v2.7 flag at default) and NO overrides; the live side is the
 	# v2.8 defaults with exactly the two new switches off.
-	live.apply_overrides({"cov": 0, "tapcd": 0})
+	live.apply_overrides({"cov": 0, "tapcd": 0, "pullsafe": 0})
 	var frames = 3
 	var dir_checks = 0
 	for i in range(n_scn):

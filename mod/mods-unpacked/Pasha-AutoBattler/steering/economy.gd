@@ -80,6 +80,10 @@ var eta_cost = 0.5
 var deadline_margin = 1.5
 var deadline_boost = 2.0
 var deadline_cap = 3.0
+# v2.10.0: 1 = v2.9.1 bug (the wave-end deadline factor is applied here AND
+# again in econ_planner._deadline -> value up to cap^2 = 9x near the horn);
+# 0 = fixed: econ_planner owns the single deadline scale.
+var deadline_in_price = 0.0
 var sweep_secs = 6.0
 var gather_range = 2000.0
 var candidate_cap = 60
@@ -105,6 +109,7 @@ func apply_config(cfg) -> void:
 	deadline_margin = float(cfg.econ_deadline_margin)
 	deadline_boost = float(cfg.econ_deadline_boost)
 	deadline_cap = float(cfg.econ_deadline_cap)
+	deadline_in_price = float(cfg.econ_dl)
 	sweep_secs = float(cfg.econ_sweep_secs)
 	gather_range = float(cfg.econ_gather_range)
 	candidate_cap = int(cfg.econ_candidate_cap)
@@ -290,7 +295,13 @@ func price_consumable(kind: String, heal: float, ctx: Dictionary,
 		return -POISON_COST
 	if kind == "meca" or kind == "mutant":
 		var v = EVO_VALUE
-		return v * _deadline_factor(ctx, ctx.get("item_eta", 0.0))
+		# v2.10.0 --arb-econdl: the planner applies the wave-end deadline scale
+		# (econ_planner._deadline); applying it here as well made the value
+		# quadratic near the horn (up to 9x), which let end-of-wave sweeps
+		# outbid the contact price and walk through bodies.
+		if deadline_in_price != 0.0:
+			return v * _deadline_factor(ctx, ctx.get("item_eta", 0.0))
+		return v
 	if kind == "mutation" or kind == "parts":
 		return 0.0                         # horn vacuum pays them anyway
 	var out = heal_value(heal, ctx) + always_on_value(kind, ctx)
@@ -349,7 +360,10 @@ func price_tree(ctx: Dictionary) -> float:
 	# income-build tree bonus (Explorer's "trees" stat / tree turrets)
 	var tree_stat = float(_fx(ctx, "trees", 0.0)) + float(_fx(ctx, "tree_turrets", 0.0)) * 3.0
 	ev += min(2.0, tree_stat * TREE_BONUS_HP)
-	return ev * _deadline_factor(ctx, ctx.get("item_eta", 0.0))
+	# v2.10.0 --arb-econdl: see price_consumable (planner owns the deadline).
+	if deadline_in_price != 0.0:
+		return ev * _deadline_factor(ctx, ctx.get("item_eta", 0.0))
+	return ev
 
 
 # Mid-wave value of one material/gold drop. The material itself is banked at

@@ -99,6 +99,10 @@ var econ_eta_cost = 0.5
 var econ_deadline_margin = 1.5
 var econ_deadline_boost = 2.0
 var econ_deadline_cap = 3.0
+# v2.10.0: 1 = v2.9.1 behaviour (the wave-end deadline factor is applied TWICE,
+# once inside economy.gd's price and again in econ_planner.gd -> value up to
+# 9x near the horn); 0 = fixed, the planner is the only deadline owner.
+var econ_dl = 0.0
 var econ_sweep_secs = 6.0
 var econ_gather_range = 2000.0
 var econ_candidate_cap = 60
@@ -140,6 +144,10 @@ var w_anchor = 12.0
 var trade_share = 0.5
 var fire_floor = 16.0
 var trade_killable_min = 0.15
+# v2.10.0: contract-body-aware objective pull guard (see the arbiter's
+# PULL_SAFE block). 1 = shipped default; 0 = exact v2.9.1 (objective pulls are
+# never damped, so a committed resource behind a monster is walked through).
+var pull_safe = 1.0
 var engage_mult = 1.0
 var aimed_full = 1.0
 var never_still_scan = 1.0
@@ -303,6 +311,7 @@ func reset_defaults() -> void:
 	trade_share = 0.5
 	fire_floor = 16.0
 	trade_killable_min = 0.15
+	pull_safe = 1.0
 	engage_mult = 1.0
 	aimed_full = 1.0
 	never_still_scan = 1.0
@@ -334,6 +343,7 @@ func reset_defaults() -> void:
 	econ_deadline_margin = 1.5
 	econ_deadline_boost = 2.0
 	econ_deadline_cap = 3.0
+	econ_dl = 0.0
 	econ_sweep_secs = 6.0
 	econ_gather_range = 2000.0
 	econ_candidate_cap = 60
@@ -436,6 +446,7 @@ func _apply(key: String, v) -> void:
 		"trade": trade_share = float(v)
 		"floor": fire_floor = float(v)
 		"tradekill": trade_killable_min = float(v)
+		"pullsafe": pull_safe = float(v)
 		"engage": engage_mult = float(v)
 		"aimedfull": aimed_full = float(v)
 		"neverstill": never_still_scan = float(v)
@@ -470,6 +481,7 @@ func _apply(key: String, v) -> void:
 		"econrange": econ_gather_range = max(float(v), 900.0)
 		"econcands": econ_candidate_cap = max(int(v), 8)
 		"econxp": econ_xp = max(float(v), 0.0)
+		"econdl": econ_dl = float(v)
 		# ---- shell-owned ----
 		"every": every = int(v)
 		_:

@@ -602,6 +602,30 @@ const OPP_GOAL_SCALE_MAX = 2.0    # reward pull multiplier cap: clamp(value/9, 1
 const OPP_HOLD = 90.0             # px: a stored special target may move this far
 const OPP_RISK_TAPER = 60.0       # px beyond the hit radius where route risk fades out
 
+# -- v2.10.0: contract-body-aware objective pull guard (--arb-pullsafe) -----
+# Round-7 play-test: "sometimes in relatively simple situations the character
+# walks into a monster". Root cause is structural and older than the economy
+# layer: the contact price SATURATES inside the (Hurtbox-inflated) body radius
+# (_taper returns 1.0 for every heading whose closest approach is inside it, and
+# a body already next to us is inside it on EVERY heading), so once a body is
+# that close the threat term cannot tell "run away" from "walk through" -- and
+# every objective-seeking pull (committed goal pull, bounty pull, per-step
+# reward attraction) is then free to decide the heading, straight through the
+# body. v2.6.1 kept that from happening by accident: its committed-goal layer
+# refused to acquire while a body was within GOAL_SAFE_R (320 px) and aborted
+# inside GOAL_ABORT_R (170 px); v2.7 replaced those binary gates with a
+# straight-line risk budget, and v2.8/v2.9 raised the reward values and the pull
+# magnitude (up to 28.8 HP), so a committed resource behind a monster is now
+# walked through. The guard restores the missing safety property continuously:
+# while ANY contact/dash body is inside its own taper band, objective pulls are
+# damped to zero and the contact/crowding terms decide the heading alone.
+# Hysteresis (release only once the body is clear of the band) prevents the
+# pull from flickering on/off at the boundary. --arb-pullsafe=0 is the exact
+# v2.9.1 control arm.
+const PULL_SAFE_ENABLE = 1.0
+const PULL_SAFE_ENTER = 1.0      # gap / taper-width; < 1 = body inside taper band
+const PULL_SAFE_RELEASE = 1.6    # ...and hysteresis: clear of the band by 60%
+
 # -- v2.8.0: high-value coverage (--arb-cov) ------------------------------
 # v2.7 coverage had two holes the player's "should cover ALL high-value
 # targets" report points at:
@@ -823,6 +847,12 @@ var last_econ_score = 0.0
 var last_opp_kind = ""
 var last_opp_value = 0.0
 var last_opp_risk = 0.0
+# v2.10.0 objective-pull guard: 0.0 when a body is inside its taper band and
+# objective pulls are damped, 1.0 otherwise (probe/regression-test telemetry).
+var pull_safe = PULL_SAFE_ENABLE
+var last_pull_scale = 1.0
+var _pull_scale = 1.0
+var _pull_suppressed = false
 var _cfg = null                 # persistent Config for the compatibility apply_overrides()
 # -- v2.9 economy objective layer: the economy module / world_view own the
 # pricing; the arbiter only consumes the committed candidate (Phase B hook) and
@@ -1052,6 +1082,7 @@ func apply_config(cfg, verbose = false) -> void:
 	opp_enable = cfg.opp_enable
 	opp_agg = cfg.opp_agg
 	cov_enable = cfg.cov_enable
+	pull_safe = cfg.pull_safe
 	econ = cfg.econ
 	if verbose:
 		_print_overrides()
@@ -1073,6 +1104,7 @@ func _print_overrides() -> void:
 	print("ARBITER v2.6.1: roomtrack=%.2f" % [room_track])
 	print("ARBITER v2.7.0: opp=%.2f agg=%.2f" % [opp_enable, opp_agg])
 	print("ARBITER v2.8.0: cov=%.2f" % [cov_enable])
+	print("ARBITER v2.10.0: pullsafe=%.2f" % [pull_safe])
 
 
 # Compatibility wrapper for the offline harnesses (planner-selftest, gate, sim,
@@ -1357,6 +1389,10 @@ func choose(p0: Vector2, speed: float, body_radius: float, far: Vector2,
 		# exactly the right question to be asking while escaping.
 
 	_prepare(p0, speed, body_radius, threats, current_hp, mitigation)
+	# v2.10.0: decide whether objective pulls may steer this frame (see PULL_SAFE).
+	# Runs before the candidate sweep because _cost reads _pull_scale.
+	_update_pull_safety(p0, threats, body_radius)
+	last_pull_scale = _pull_scale
 
 	var cands = []
 	for k in range(DIRS):
@@ -1955,6 +1991,43 @@ func _nearest_body_dist(p0: Vector2, threats: Array) -> float:
 		if d < best:
 			best = d
 	return best
+
+
+# v2.10.0: objective-pull guard (see the PULL_SAFE block). Decides whether the
+# committed goal/bounty pulls and the per-step reward attraction may steer this
+# decision. A body counts as "too close to trust a pull" once it is inside the
+# taper band where the contact price starts to matter -- exactly the regime in
+# which _taper is flat and the pull would otherwise choose the heading.
+#   ratio = (dist - combined_radius) / taper_width
+#   ratio <= 0  -> inside the model contact bubble (contact price saturated)
+#   ratio >= 1  -> clear of the taper (contact price 0)
+# The committed special target is skipped while it is the bounty aim: its own
+# body must not veto the approach to it.
+func _update_pull_safety(p0: Vector2, threats: Array, body_radius: float) -> void:
+	_pull_scale = 1.0
+	if pull_safe == 0.0:
+		_pull_suppressed = false
+		return
+	var min_ratio = 1e18
+	for t in threats:
+		var k = t[T_KIND]
+		if k != KIND_CONTACT and k != KIND_DASH:
+			continue
+		if _bounty_on and t[T_POS].distance_squared_to(_bounty_pos) < 1.0:
+			continue    # the thing we are committing to approach is not an obstacle
+		var combined = float(t[T_RADIUS]) + body_radius
+		var taper = combined * (HIT_MARGIN - 1.0)
+		if taper <= 0.001:
+			continue
+		var ratio = (t[T_POS].distance_to(p0) - combined) / taper
+		if ratio < min_ratio:
+			min_ratio = ratio
+	if _pull_suppressed:
+		if min_ratio > PULL_SAFE_RELEASE:
+			_pull_suppressed = false
+	elif min_ratio < PULL_SAFE_ENTER:
+		_pull_suppressed = true
+	_pull_scale = 0.0 if _pull_suppressed else 1.0
 
 
 # Best EVASION LINE out of a closing ring: integrate 16 headings for
@@ -2996,7 +3069,12 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 					gain += w_pickup * r[R_VALUE]                  # inside the zone: keep earning
 			elif d1 == 0.0 and d0 > 0.0:
 				gain += w_pickup * r[R_VALUE] * pickup_taken       # this move collects it
-		total -= gain
+		# v2.10.0: reward attraction is an objective pull too -- while a body is
+		# inside its taper band the pull is damped (see PULL_SAFE) and the
+		# contact/crowding terms decide the heading; otherwise the economy
+		# layer's (now deadline-correct) value would still drag the bot through
+		# the body with the no-commitment path (probe Q).
+		total -= gain * _pull_scale
 
 	# -- v2.5.0: committed item goal pull (see the GOAL_* block) --
 	# A persistent, ETA-scaled pull toward the reward chosen in choose().
@@ -3012,7 +3090,7 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 		# v2.7.0: the unified planner scales the committed pull by the reward's
 		# value (opp=0 keeps the exact v2.6.1 weight, _opp_on is false then).
 		var gscale = _opp_goal_scale if _opp_on else 1.0
-		total -= w_goal * _goal_frac * gscale * gclosed / (1.0 + gd0 / GOAL_FALLOFF)
+		total -= w_goal * _goal_frac * gscale * _pull_scale * gclosed / (1.0 + gd0 / GOAL_FALLOFF)
 
 	# -- v2.6.0: bounty approach pull (see the BOUNTY_* block) --
 	# Direction-alignment reward toward the special target, ramped by how far
@@ -3028,7 +3106,7 @@ func _cost(d: Vector2, p0: Vector2, speed: float, body_radius: float, far: Vecto
 			# v2.7.0: value-scaled pull for the unified planner; opp=0 keeps
 			# the exact v2.6.1 BOUNTY_PULL constant (_opp_on is false then).
 			var bpull = _opp_pull if _opp_on else BOUNTY_PULL
-			total -= bpull * align * ramp
+			total -= bpull * _pull_scale * align * ramp
 
 	# --- Character anchor ---
 	# Priced at the candidate's END position. Between the two radii every

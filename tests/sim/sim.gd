@@ -556,7 +556,7 @@ func run_scenario(scn, policy):
 	elif policy == "control":
 		arb = new_arbiter()
 		arb.apply_overrides({"breakout": 0, "goal": 0, "pursuit": 0, "walk": 0,
-				"bounty": 0, "space": 0, "roomtrack": 0})
+				"bounty": 0, "space": 0, "roomtrack": 0, "pullsafe": 0})
 	elif policy == "v25":
 		# v2.5.0 feature set: v2.6 bounty/box layer off.
 		arb = new_arbiter()
@@ -566,6 +566,9 @@ func run_scenario(scn, policy):
 		# predates v2.7 there is no opp switch, so this is the default script.
 		arb = new_arbiter()
 		_set_switch(arb, "opp_enable", 0.0)
+		# v2.10.0: the new objective-pull guard must be off for the exact
+		# pre-v2.7 arm (it did not exist then).
+		_set_switch(arb, "pull_safe", 0.0)
 	elif policy == "v27" or policy == "v27a0" or policy == "v27a2":
 		# EXACT v2.7.0: opp=1 + cov=0 + tapcd=0 (the v2.8 coverage layer and
 		# the tap-CD sync both off). agg stays 1 (a<N> variants sweep agg 0/2).
@@ -583,11 +586,15 @@ func run_scenario(scn, policy):
 		_set_switch(arb, "opp_agg", agg)
 		_set_switch(arb, "cov_enable", 0.0)
 		_set_switch(arb, "tap_cd", 0.0)
+		_set_switch(arb, "pull_safe", 0.0)
 	elif policy == "v28":
 		# shipped v2.8.0 defaults: opp=1, agg=1, cov=1, tapcd=1. On the frozen
 		# v2.7.0 reference the extra switches do not exist, so this is the v2.7
-		# default script (used for the pinned-baseline run).
+		# default script (used for the pinned-baseline run). pull_safe=0 keeps
+		# this an EXACT pre-v2.10.0 arm (the v2.10.0 default guard has its own
+		# arm in tests/contact/).
 		arb = new_arbiter()
+		_set_switch(arb, "pull_safe", 0.0)
 	elif policy == "v250" or policy == "proto" or policy == "goal":
 		arb = new_arbiter()
 	elif policy.begins_with("pred"):

@@ -189,6 +189,21 @@ cd auto-brotato
     `--arb-econsweep`（波末清理窗口 6s）、`--arb-econrange`（资源视野 ≥900，默认 2000px）、
     `--arb-econcands`（候选上限，默认 60）、`--arb-econxp`（每 material 的 XP 折算 0.2）。
   - **精确 v2.4.0 控制臂（16 个开关全 0）**：上述 15 个 + `--arb-econ=0`。
+- v2.10.0 接触/碰撞开关 #2（第七轮试玩反馈，默认开）：
+  - `--arb-pullsafe=<0|1>`（默认 `1`）：**目标拉力安全闸门**。只要任何接触/冲锋怪进入自己的
+    taper 带（`dist < combined_radius * 1.6`，即接触价开始计费、并在 `combined_radius` 内饱和的
+    区域），所有“目标拉力”（承诺 goal 拉、bounty 拉、每步 reward 吸引）本帧归零，方向完全交给
+    接触/拥挤项；带 1.0/1.6 比值的滞回（进入 `<1.0` 归零，离开 `>1.6` 才恢复）。修复的根因：
+    v2.6.1 的二元身体闸门（最近身体 >320px 才承诺、<170px 放弃）在 v2.7 被路线风险预算取代，
+    maintain 路径不再复查当前身体；而 `_taper` 在身体半径内对所有方向都是 1.0（无逃逸梯度），
+    v2.8/v2.9 把奖励价值与拉力放大到 28.8 HP 后，承诺拉会把角色直接拉穿怪物。`0` = **精确
+    v2.9.1**（不做任何拉力抑制）。
+  - `--arb-econdl=<0|1>`（默认 `0`）：波末 deadline 缩放次数。`0` = 修复后（`economy.gd` 的价格
+    不再乘 deadline，只有 `econ_planner._deadline` 乘一次，最高 3×）；`1` = **精确 v2.9.1** 的
+    双重缩放（价格 × planner，最高 9×，波末树/LOST 果被严重高估）。
+  - **精确 v2.9.1**：`--arb-pullsafe=0 --arb-econdl=1`（其余默认）。
+  - v2.4.0 控制臂在 v2.10 下再加 `--arb-pullsafe=0`（`--arb-econ=0` 时 `econdl` 不生效，写 `1`
+    只为契约完整）。
 - 若发现角色不动：先看 HUD 是否 `ON`；再确认 mod 是否被加载
   （`~/Library/Application Support/Brotato/logs/modloader.log` 里应有 `Pasha-AutoBattler`）。
 

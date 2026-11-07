@@ -10,8 +10,9 @@
 #                            (2476 checks) against frozen refs from git
 #   4. gate                  closed-loop acceptance gate (32 checks)
 #   5. worldview             world_view probe vs pinned v2.7.0 (32 checks)
-#   6. sim                   closed-loop no-regression matrix + assertions
-#   7. econ                  tests/econ/run.sh if present (closed-loop economic sim)
+#   6. contact               round-7 sparse-scene contact suite (fixed vs v2.9.1)
+#   7. sim                   closed-loop no-regression matrix + assertions
+#   8. econ                  tests/econ/run.sh if present (closed-loop economic sim)
 #
 # Every suite must print at least one `RESULT ... PASS` line, exit 0, and (where
 # the suite declares expected counts in its own run.sh) match those counts.
@@ -118,6 +119,7 @@ should_run check_gd_selftest && run_suite check_gd_selftest 360 bash "$SCRIPT_DI
 should_run planner && run_suite planner 420 bash "$SCRIPT_DIR/planner/run.sh"
 should_run gate && run_suite gate 480 bash "$SCRIPT_DIR/gate/run.sh"
 should_run worldview && run_suite worldview 300 bash "$SCRIPT_DIR/worldview/run.sh"
+should_run contact && run_suite contact 420 bash "$SCRIPT_DIR/contact/run.sh"
 should_run sim && run_suite sim 1200 bash "$SCRIPT_DIR/sim/matrix.sh"
 if [ -f "$SCRIPT_DIR/econ/run.sh" ]; then
 	should_run econ && run_suite econ 1200 bash "$SCRIPT_DIR/econ/run.sh"

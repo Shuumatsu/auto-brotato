@@ -10,6 +10,7 @@ The character moves and dodges by itself during waves. [b]Every decision stays y
 
 [b]What it does[/b]
 [list]
+[*]Contact fix #2 (v2.10.0, seventh play-test): objective pulls (the committed goal/bounty pull and the per-step reward attraction) are damped to zero while any contact/dash body is inside its taper band, so a committed resource behind a monster no longer makes the bot walk through it; the wave-end deadline is applied ONCE (econ_planner is the single owner) instead of twice, so end-of-wave tree / lost-at-horn fruit sweeps are no longer over-valued up to 9x. Opt-outs: --arb-pullsafe (0 = exact v2.9.1), --arb-econdl (1 = v2.9.1 double scaling).
 [*]Dodges bullets, chargers, AoE telegraphs, spawn markers
 [*]High-value coverage + live CD sync (v2.8.0): Boss/Elite priced apart (50 / 30) and produces get explicit values -- crate 20, legendary 34, evolution item 20, loot alien 12, tree 7 (reward tag index 6, max(raw, table); healing fruit keeps raw food); fire_still tap-move stops ONE frame when a weapon is ready (live cooldown sync) instead of fixed 2+2. Opt-outs: --arb-cov / --arb-tapcd (0 = exact v2.7.0); --arb-dpsref=2 opt-in killability
 [*]Unified opportunity planning (v2.7.0): one value-vs-route-risk planner replaces the v2.6 bounty/goal gates -- explicit special-target values (boss/elite 30, spawner egg 40, cursed/evolved 18), detours priced against expected route damage; special targets gathered to 900/1400/1600 px by --arb-agg; fleeing loot aliens intercepted via measured velocity. Opt-outs: --arb-opp (0 = exact v2.6.1) / --arb-agg

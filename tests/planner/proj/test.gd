@@ -248,7 +248,7 @@ func test_control():
 		# v2.8.0: the coverage layer defaults ON; cov/tapcd=0 complete the arm.
 		a_new.apply_overrides({"breakout": 0, "goal": 0, "pursuit": 0, "walk": 0,
 			"bounty": 0, "space": 0, "roomtrack": 0, "opp": 0,
-			"cov": 0, "tapcd": 0})
+			"cov": 0, "tapcd": 0, "pullsafe": 0})
 		var d_old = call_choose(a_old, s)
 		var d_new = call_choose(a_new, s)
 		check(vec_approx(d_old, d_new),
@@ -537,7 +537,7 @@ func test_v250_switches():
 	check(sw_is(d, "walk_enable", 1.0), "default walk_enable == 1 (walk-on semantics on)")
 	var c = new_arb()
 	c.apply_overrides({"breakout": 0, "goal": 0, "pursuit": 0, "walk": 0,
-			"bounty": 0, "space": 0, "roomtrack": 0})
+			"bounty": 0, "space": 0, "roomtrack": 0, "pullsafe": 0})
 	check(sw_is(c, "breakout_enable", 0.0), "override breakout=0")
 	check(sw_is(c, "goal_enable", 0.0), "override goal=0")
 	check(sw_is(c, "pursuit_enable", 0.0), "override pursuit=0")
@@ -561,9 +561,9 @@ func test_v250_switches():
 	var a4 = new_arb()
 	var a5 = new_arb()
 	a4.apply_overrides({"breakout": 0, "goal": 0, "pursuit": 0, "walk": 0,
-			"bounty": 0, "space": 0, "roomtrack": 0, "opp": 0})
+			"bounty": 0, "space": 0, "roomtrack": 0, "opp": 0, "pullsafe": 0})
 	a5.apply_overrides({"breakout": 0, "goal": 0, "pursuit": 0, "walk": 0,
-			"bounty": 0, "space": 0, "roomtrack": 0, "opp": 0})
+			"bounty": 0, "space": 0, "roomtrack": 0, "opp": 0, "pullsafe": 0})
 	var d4 = call_choose(a4, s4)
 	var d5 = call_choose(a5, s5)
 	check(vec_approx(d4, d5), "walk=0: 5-tuple walk-on reward == 4-tuple held reward")
@@ -611,7 +611,7 @@ func test_v250_switches():
 func control_off():
 	return {"breakout": 0, "goal": 0, "pursuit": 0, "walk": 0,
 			"bounty": 0, "space": 0, "roomtrack": 0, "opp": 0,
-			"cov": 0, "tapcd": 0}
+			"cov": 0, "tapcd": 0, "pullsafe": 0}
 
 
 # Bool-tolerant telemetry read: null when the property does not exist on this
@@ -986,7 +986,7 @@ func test_v280_control():
 		# cov=0 + tapcd=0 is the exact v2.7.0 arm. The frozen v2.7.0 arbiter has
 		# neither key and its defaults (opp=1, agg=1, all v2.7 flags default) are
 		# the reference, so it gets no overrides at all.
-		a_live.apply_overrides({"cov": 0, "tapcd": 0})
+		a_live.apply_overrides({"cov": 0, "tapcd": 0, "pullsafe": 0})
 		# Frame 0: direction + the prepared world choose() just built.
 		var d0_live = call_choose(a_live, s)
 		var d0_ref = call_choose(a_ref, s)

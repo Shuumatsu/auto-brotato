@@ -212,7 +212,7 @@ func make_arb(kind):
 	if kind == "control" or kind == "zero":
 		a.apply_overrides({"breakout": 0, "goal": 0, "pursuit": 0, "walk": 0,
 			"bounty": 0, "space": 0, "roomtrack": 0, "opp": 0,
-			"cov": 0, "tapcd": 0})
+			"cov": 0, "tapcd": 0, "pullsafe": 0})
 	# v2.7 arms (ignored by a pre-v2.7 script, which then behaves as the
 	# v2.7.0/v2.6.1 baseline -- exactly what the test-first baseline runs need):
 	#   legacy = old switches untouched, unified opportunity layer at 0: the
@@ -226,7 +226,7 @@ func make_arb(kind):
 	# exact v2.7.0 values (class1=30, raw produce prices, no reward tags). This
 	# is also the "raw value" comparison arm for the G1 crate scenario.
 	if kind == "legacy27":
-		a.apply_overrides({"opp": 1, "cov": 0, "tapcd": 0})
+		a.apply_overrides({"opp": 1, "cov": 0, "tapcd": 0, "pullsafe": 0})
 	return a
 
 
